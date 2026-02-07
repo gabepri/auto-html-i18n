@@ -1,8 +1,30 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git -C /home/gabe/auto-dom-i18n log --oneline --all)",
-      "Bash(npm run typecheck:*)"
+      "Read",
+      "Glob",
+      "Grep",
+      "WebFetch",
+      "WebSearch",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git branch:*)",
+      "Bash(git show:*)",
+      "Bash(git remote -v:*)",
+      "Bash(git config:*)",
+      "Bash(ls:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(npm run lint:*)",
+      "Bash(npm run test:*)",
+      "Bash(npm run build:*)",
+      "Bash(gh auth status:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh issue view:*)",
+      "Bash(node -e:*)",
+      "Bash(npx tsc --noEmit:*)"
     ]
   }
 }
