@@ -2,7 +2,7 @@
 
 [![NPM Version](https://img.shields.io/npm/v/auto-dom-i18n)](https://www.npmjs.com/package/auto-dom-i18n)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/gabepri/auto-dom-i18n/main.yml)](https://github.com/gabepri/auto-dom-i18n/actions)
-[![License](https://img.shields.io/npm/l/auto-dom-i18n)](https://github.com/gabepri/auto-dom-i18n/blob/main/LICENSE)
+[![License](https://img.shields.io/github/license/gabepri/auto-dom-i18n)](https://github.com/gabepri/auto-dom-i18n/blob/main/LICENSE)
 
 **auto-dom-i18n** is a zero-dependency, framework-agnostic translation library that uses `MutationObserver` to automatically translate text content in your application.
 
