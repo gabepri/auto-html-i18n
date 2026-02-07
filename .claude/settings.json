@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /home/gabe/auto-dom-i18n log --oneline --all)",
+      "Bash(npm run typecheck:*)"
+    ]
+  }
+}
