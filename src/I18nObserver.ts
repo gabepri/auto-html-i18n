@@ -81,6 +81,7 @@ export class I18nObserver {
         originalAttribute: config.originalAttribute,
         pendingAttribute: config.pendingAttribute,
         keyAttribute: config.keyAttribute,
+        translatableAttributes: config.translatableAttributes,
         onMissingTranslation: config.onMissingTranslation,
         debug: config.debug,
       }
@@ -104,6 +105,7 @@ export class I18nObserver {
         originalAttribute: config.originalAttribute,
         pendingAttribute: config.pendingAttribute,
         keyAttribute: config.keyAttribute,
+        translatableAttributes: config.translatableAttributes,
         onMissingTranslation: config.onMissingTranslation,
         debug: config.debug,
       }

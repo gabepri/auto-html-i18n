@@ -113,6 +113,8 @@ export class Observer {
         if (!this.isInsideIgnored(element)) {
           const attrName = mutation.attributeName;
           if (attrName && this.config.translatableAttributes.includes(attrName)) {
+            const originalAttrName = `${this.config.originalAttribute}-${attrName}`;
+            if (element.hasAttribute(originalAttrName)) continue;
             const value = element.getAttribute(attrName);
             if (value && value.trim()) {
               this.config.onAttributeFound(element, attrName, value);
@@ -152,6 +154,8 @@ export class Observer {
 
   private processElement(element: Element): void {
     for (const attr of this.config.translatableAttributes) {
+      const originalAttrName = `${this.config.originalAttribute}-${attr}`;
+      if (element.hasAttribute(originalAttrName)) continue;
       const value = element.getAttribute(attr);
       if (value && value.trim()) {
         this.config.onAttributeFound(element, attr, value);
@@ -189,6 +193,8 @@ export class Observer {
     out: Array<{ element: Element; attr: string; value: string }>
   ): void {
     for (const attr of this.config.translatableAttributes) {
+      const originalAttrName = `${this.config.originalAttribute}-${attr}`;
+      if (element.hasAttribute(originalAttrName)) continue;
       const value = element.getAttribute(attr);
       if (value && value.trim()) {
         out.push({ element, attr, value });

@@ -32,6 +32,7 @@ function createDeps(overrides: {
     originalAttribute: 'data-i18n-original',
     pendingAttribute: 'data-i18n-pending',
     keyAttribute: 'data-i18n-key',
+    translatableAttributes: ['title', 'placeholder', 'alt', 'aria-label'],
     onMissingTranslation,
     debug: false,
     ...overrides.configOverrides,
@@ -45,6 +46,7 @@ describe('Translator', () => {
   let root: HTMLElement;
 
   beforeEach(() => {
+    document.body.innerHTML = '';
     root = document.createElement('div');
     document.body.appendChild(root);
   });
@@ -238,6 +240,68 @@ describe('Translator', () => {
     });
   });
 
+  describe('processAttribute() - original tracking', () => {
+    it('should set original-tracking attribute on sync translation', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Enter name', 'Ingrese nombre');
+
+      const input = document.createElement('input');
+      input.setAttribute('placeholder', 'Enter name');
+      root.appendChild(input);
+
+      translator.processAttribute(input, 'placeholder', 'Enter name');
+
+      expect(input.getAttribute('data-i18n-original-placeholder')).toBe('Enter name');
+    });
+
+    it('should skip if original-tracking attribute already exists', () => {
+      const { translator, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const input = document.createElement('input');
+      input.setAttribute('placeholder', 'Ingrese nombre');
+      input.setAttribute('data-i18n-original-placeholder', 'Enter name');
+      root.appendChild(input);
+
+      translator.processAttribute(input, 'placeholder', 'Ingrese nombre');
+
+      expect(enqueueSpy).not.toHaveBeenCalled();
+    });
+
+    it('should set original-tracking attribute via applyPending', () => {
+      const { translator, store } = createDeps();
+
+      const input = document.createElement('input');
+      input.setAttribute('placeholder', 'Enter name');
+      root.appendChild(input);
+
+      translator.processAttribute(input, 'placeholder', 'Enter name');
+
+      store.set('es', 'Enter name', 'Ingrese nombre');
+      translator.applyPending('Enter name');
+
+      expect(input.getAttribute('placeholder')).toBe('Ingrese nombre');
+      expect(input.getAttribute('data-i18n-original-placeholder')).toBe('Enter name');
+    });
+
+    it('should track multiple attributes independently on same element', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Photo', 'Foto');
+      store.set('es', 'My photo', 'Mi foto');
+
+      const img = document.createElement('img');
+      img.setAttribute('alt', 'Photo');
+      img.setAttribute('title', 'My photo');
+      root.appendChild(img);
+
+      translator.processAttribute(img, 'alt', 'Photo');
+      translator.processAttribute(img, 'title', 'My photo');
+
+      expect(img.getAttribute('data-i18n-original-alt')).toBe('Photo');
+      expect(img.getAttribute('data-i18n-original-title')).toBe('My photo');
+    });
+  });
+
   describe('retranslateAll()', () => {
     it('should re-resolve all elements with originalAttribute', () => {
       const { translator, store } = createDeps();
@@ -256,6 +320,38 @@ describe('Translator', () => {
 
       // Still female context, so still Hola-F
       expect(p.textContent).toBe('Hola-F');
+    });
+
+    it('should re-translate attributes with original-tracking data', () => {
+      const { translator, store, resolver } = createDeps();
+      store.set('es', 'Enter name', { male: 'Ingrese nombre', female: 'Ingrese su nombre' });
+
+      const input = document.createElement('input');
+      input.setAttribute('placeholder', 'Ingrese su nombre');
+      input.setAttribute('data-i18n-original-placeholder', 'Enter name');
+      root.appendChild(input);
+
+      // Change context to male
+      resolver.updateContext({ gender: 'male' });
+      translator.retranslateAll();
+
+      expect(input.getAttribute('placeholder')).toBe('Ingrese nombre');
+    });
+
+    it('should queue attributes for uncached locale on retranslateAll', () => {
+      const { translator, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const input = document.createElement('input');
+      input.setAttribute('placeholder', 'Ingrese nombre');
+      input.setAttribute('data-i18n-original-placeholder', 'Enter name');
+      root.appendChild(input);
+
+      translator.setLocale('fr');
+      translator.retranslateAll();
+
+      expect(enqueueSpy).toHaveBeenCalledTimes(1);
+      expect(enqueueSpy.mock.calls[0]![0].masked).toBe('Enter name');
     });
   });
 

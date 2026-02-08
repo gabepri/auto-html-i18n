@@ -9,6 +9,7 @@ export interface TranslatorConfig {
   originalAttribute: string;
   pendingAttribute: string;
   keyAttribute: string;
+  translatableAttributes: string[];
   onMissingTranslation: OnMissingTranslationCallback;
   debug: boolean;
 }
@@ -83,6 +84,13 @@ export class Translator {
   }
 
   processAttribute(element: Element, attr: string, originalValue: string): void {
+    const originalAttrName = `${this.config.originalAttribute}-${attr}`;
+
+    // Skip if this attribute was already translated
+    if (element.hasAttribute(originalAttrName)) {
+      return;
+    }
+
     const maskResult = this.masker.mask(originalValue);
 
     if (!hasTranslatableContent(maskResult.masked)) {
@@ -99,6 +107,7 @@ export class Translator {
         const unmasked = this.masker.unmask(resolved, maskResult.variables, maskResult.tagAttributes);
         const output = this.masker.applyCasePattern(unmasked, maskResult.casePattern);
         element.setAttribute(attr, maskResult.leadingWhitespace + output + maskResult.trailingWhitespace);
+        element.setAttribute(originalAttrName, originalValue);
       }
       return;
     }
@@ -141,6 +150,8 @@ export class Translator {
           const unmasked = this.masker.unmask(resolved, node.variables, node.tagAttributes);
           const output = this.masker.applyCasePattern(unmasked, node.casePattern);
           node.element.setAttribute(node.attrName, node.leadingWhitespace + output + node.trailingWhitespace);
+          const originalAttrName = `${this.config.originalAttribute}-${node.attrName}`;
+          node.element.setAttribute(originalAttrName, node.originalText);
         }
       } else {
         this.applyTranslation(node.element, entry.value, {
@@ -184,6 +195,49 @@ export class Translator {
         this.store.markPending(this.config.locale, cacheKey);
         this.trackPendingNode(cacheKey, element, maskResult, originalText, isHtml);
         this.queue.enqueue(item);
+      }
+    }
+
+    // Re-translate attributes with original-tracking data
+    for (const attr of this.config.translatableAttributes) {
+      const originalAttrName = `${this.config.originalAttribute}-${attr}`;
+      const attrElements = document.querySelectorAll(`[${originalAttrName}]`);
+
+      for (const element of attrElements) {
+        const originalValue = element.getAttribute(originalAttrName);
+        if (!originalValue) continue;
+
+        const maskResult = this.masker.mask(originalValue);
+        if (!hasTranslatableContent(maskResult.masked)) continue;
+
+        const cacheKey = maskResult.masked;
+        const entry = this.store.get(this.config.locale, cacheKey);
+
+        if (entry && entry.status === 'resolved' && entry.value !== null) {
+          const resolved = this.resolver.resolve(entry.value);
+          if (resolved) {
+            const unmasked = this.masker.unmask(resolved, maskResult.variables, maskResult.tagAttributes);
+            const output = this.masker.applyCasePattern(unmasked, maskResult.casePattern);
+            element.setAttribute(attr, maskResult.leadingWhitespace + output + maskResult.trailingWhitespace);
+          }
+        } else if (!entry) {
+          const item = this.buildItem(cacheKey, originalValue, maskResult.variables, element, `attribute:${attr}`);
+          this.store.markPending(this.config.locale, cacheKey);
+          const pendingNode: PendingNode = {
+            element,
+            variables: maskResult.variables,
+            tagAttributes: maskResult.tagAttributes,
+            casePattern: maskResult.casePattern,
+            leadingWhitespace: maskResult.leadingWhitespace,
+            trailingWhitespace: maskResult.trailingWhitespace,
+            originalText: originalValue,
+            isAttribute: true,
+            attrName: attr,
+            isHtml: false,
+          };
+          this.addToPendingSet(cacheKey, pendingNode);
+          this.queue.enqueue(item);
+        }
       }
     }
   }

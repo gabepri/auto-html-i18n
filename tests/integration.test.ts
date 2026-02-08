@@ -283,6 +283,96 @@ describe('Integration Tests', () => {
     });
   });
 
+  describe('attribute re-translation prevention', () => {
+    it('should translate attribute exactly once (no re-translation loop)', async () => {
+      const onMissing = vi.fn().mockResolvedValue({
+        'Enter name': 'Ingrese nombre',
+      });
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        rootElement: root,
+      });
+
+      root.innerHTML = '<input placeholder="Enter name" />';
+      i18n.start();
+
+      await flushDebounce();
+
+      // Wait for any cascading mutations to settle
+      await waitForMutations();
+      await flushDebounce();
+
+      expect(onMissing).toHaveBeenCalledTimes(1);
+      const input = root.querySelector('input')!;
+      expect(input.getAttribute('placeholder')).toBe('Ingrese nombre');
+      expect(input.getAttribute('data-i18n-original-placeholder')).toBe('Enter name');
+
+      i18n.stop();
+    });
+
+    it('should re-translate attributes on setLocale', async () => {
+      const onMissing = vi.fn().mockResolvedValue({ 'Enter name': 'Entrez le nom' });
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        initialCache: { 'Enter name': 'Ingrese nombre' },
+        rootElement: root,
+      });
+
+      root.innerHTML = '<input placeholder="Enter name" />';
+      i18n.start();
+
+      const input = root.querySelector('input')!;
+      expect(input.getAttribute('placeholder')).toBe('Ingrese nombre');
+      expect(input.getAttribute('data-i18n-original-placeholder')).toBe('Enter name');
+
+      // Switch to French
+      i18n.setLocale('fr');
+
+      await flushDebounce();
+
+      expect(input.getAttribute('placeholder')).toBe('Entrez le nom');
+      // Original should still be the English source text
+      expect(input.getAttribute('data-i18n-original-placeholder')).toBe('Enter name');
+
+      i18n.stop();
+    });
+
+    it('should translate dynamically added element attributes once', async () => {
+      vi.useRealTimers();
+
+      const onMissing = vi.fn().mockResolvedValue({
+        'Search': 'Buscar',
+      });
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        rootElement: root,
+        debounceTime: 50,
+      });
+
+      i18n.start();
+
+      const input = document.createElement('input');
+      input.setAttribute('placeholder', 'Search');
+      root.appendChild(input);
+
+      // Wait for mutation + debounce + any cascading mutations
+      await new Promise((r) => setTimeout(r, 200));
+
+      expect(onMissing).toHaveBeenCalledTimes(1);
+      expect(input.getAttribute('placeholder')).toBe('Buscar');
+      expect(input.getAttribute('data-i18n-original-placeholder')).toBe('Search');
+
+      i18n.stop();
+      vi.useFakeTimers();
+    });
+  });
+
   describe('error handling', () => {
     it('should handle onMissingTranslation returning null', async () => {
       const onMissing = vi.fn().mockResolvedValue(null);

@@ -369,6 +369,74 @@ describe('Observer', () => {
     });
   });
 
+  describe('attribute re-translation prevention', () => {
+    it('should skip attributes with original-tracking data attribute during initial scan', () => {
+      root.innerHTML = '<input placeholder="Ingrese nombre" data-i18n-original-placeholder="Enter name" />';
+      const { observer, onAttributeFound } = createObserver(root);
+      observer.start();
+
+      expect(onAttributeFound).not.toHaveBeenCalled();
+
+      observer.stop();
+    });
+
+    it('should skip attribute mutations when original-tracking attribute exists', async () => {
+      root.innerHTML = '<input placeholder="Enter name" />';
+      const { observer, onAttributeFound } = createObserver(root);
+      observer.start();
+      onAttributeFound.mockClear();
+
+      const input = root.querySelector('input')!;
+      input.setAttribute('data-i18n-original-placeholder', 'Enter name');
+      input.setAttribute('placeholder', 'Ingrese nombre');
+      await waitForMutations();
+
+      expect(onAttributeFound).not.toHaveBeenCalled();
+
+      observer.stop();
+    });
+
+    it('should still process attributes without original-tracking attribute', () => {
+      root.innerHTML = '<input placeholder="Enter name" />';
+      const { observer, onAttributeFound } = createObserver(root);
+      observer.start();
+
+      expect(onAttributeFound).toHaveBeenCalledTimes(1);
+      expect(onAttributeFound.mock.calls[0]![2]).toBe('Enter name');
+
+      observer.stop();
+    });
+
+    it('should handle multiple attributes independently on the same element', () => {
+      root.innerHTML = '<img alt="Photo" title="My Photo" data-i18n-original-alt="Photo" />';
+      const { observer, onAttributeFound } = createObserver(root);
+      observer.start();
+
+      // alt should be skipped (has original-tracking), title should be reported
+      expect(onAttributeFound).toHaveBeenCalledTimes(1);
+      expect(onAttributeFound.mock.calls[0]![1]).toBe('title');
+      expect(onAttributeFound.mock.calls[0]![2]).toBe('My Photo');
+
+      observer.stop();
+    });
+
+    it('should skip already-translated attributes during subtree mutation processing', async () => {
+      const { observer, onAttributeFound } = createObserver(root);
+      observer.start();
+      onAttributeFound.mockClear();
+
+      const input = document.createElement('input');
+      input.setAttribute('placeholder', 'Ingrese nombre');
+      input.setAttribute('data-i18n-original-placeholder', 'Enter name');
+      root.appendChild(input);
+      await waitForMutations();
+
+      expect(onAttributeFound).not.toHaveBeenCalled();
+
+      observer.stop();
+    });
+  });
+
   describe('edge cases', () => {
     it('should handle nested ignored selectors', () => {
       root.innerHTML = '<code><span>should be ignored</span></code><p>Text</p>';
