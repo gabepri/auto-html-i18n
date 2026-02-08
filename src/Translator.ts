@@ -1,4 +1,4 @@
-import type { TranslationEntry, TranslationItem, TranslationItemDebug, OnMissingTranslationCallback, MaskResult } from './types';
+import type { CasePattern, TranslationEntry, TranslationItem, TranslationItemDebug, OnMissingTranslationCallback, MaskResult } from './types';
 import { Store } from './Store';
 import { Queue } from './Queue';
 import { Masker } from './Masker';
@@ -17,6 +17,7 @@ interface PendingNode {
   element: Element;
   variables: string[];
   tagAttributes: Map<string, Record<string, string>>;
+  casePattern: CasePattern;
   originalText: string;
   isAttribute?: boolean;
   attrName?: string;
@@ -94,7 +95,8 @@ export class Translator {
       const resolved = this.resolver.resolve(entry.value);
       if (resolved) {
         const unmasked = this.masker.unmask(resolved, maskResult.variables, maskResult.tagAttributes);
-        element.setAttribute(attr, unmasked);
+        const output = this.masker.applyCasePattern(unmasked, maskResult.casePattern);
+        element.setAttribute(attr, output);
       }
       return;
     }
@@ -110,6 +112,7 @@ export class Translator {
       element,
       variables: maskResult.variables,
       tagAttributes: maskResult.tagAttributes,
+      casePattern: maskResult.casePattern,
       originalText: originalValue,
       isAttribute: true,
       attrName: attr,
@@ -132,13 +135,15 @@ export class Translator {
         const resolved = this.resolver.resolve(entry.value);
         if (resolved) {
           const unmasked = this.masker.unmask(resolved, node.variables, node.tagAttributes);
-          node.element.setAttribute(node.attrName, unmasked);
+          const output = this.masker.applyCasePattern(unmasked, node.casePattern);
+          node.element.setAttribute(node.attrName, output);
         }
       } else {
         this.applyTranslation(node.element, entry.value, {
           masked: cacheKey,
           variables: node.variables,
           tagAttributes: node.tagAttributes,
+          casePattern: node.casePattern,
         }, node.originalText, node.isHtml);
       }
     }
@@ -196,11 +201,12 @@ export class Translator {
     if (!resolved) return;
 
     const unmasked = this.masker.unmask(resolved, maskResult.variables, maskResult.tagAttributes);
+    const output = this.masker.applyCasePattern(unmasked, maskResult.casePattern);
 
     if (isHtml) {
-      element.innerHTML = unmasked;
+      element.innerHTML = output;
     } else {
-      element.textContent = unmasked;
+      element.textContent = output;
     }
 
     element.setAttribute(this.config.originalAttribute, originalText);
@@ -218,6 +224,7 @@ export class Translator {
       element,
       variables: maskResult.variables,
       tagAttributes: maskResult.tagAttributes,
+      casePattern: maskResult.casePattern,
       originalText,
       isHtml,
     });

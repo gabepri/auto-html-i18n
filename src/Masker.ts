@@ -1,4 +1,4 @@
-import type { MaskerConfig, MaskResult } from './types';
+import type { CasePattern, MaskerConfig, MaskResult } from './types';
 
 export class Masker {
   private ignoreWords: string[];
@@ -14,7 +14,7 @@ export class Masker {
 
   mask(text: string): MaskResult {
     if (text === '') {
-      return { masked: '', variables: [], tagAttributes: new Map() };
+      return { masked: '', variables: [], tagAttributes: new Map(), casePattern: 'lower' };
     }
 
     // Phase 1: Normalize inline tags (strip attributes, assign indices)
@@ -103,7 +103,25 @@ export class Masker {
       }
     }
 
-    return { masked, variables, tagAttributes };
+    const casePattern = detectCasePattern(masked);
+    if (casePattern === 'upper') {
+      masked = masked.toLowerCase();
+    }
+
+    return { masked, variables, tagAttributes, casePattern };
+  }
+
+  applyCasePattern(text: string, casePattern: CasePattern): string {
+    if (casePattern !== 'upper') return text;
+
+    let result = '';
+    let inTag = false;
+    for (const char of text) {
+      if (char === '<') inTag = true;
+      result += inTag ? char : char.toUpperCase();
+      if (char === '>') inTag = false;
+    }
+    return result;
   }
 
   unmask(
@@ -243,4 +261,24 @@ export class Masker {
 
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function detectCasePattern(masked: string): CasePattern {
+  // Strip placeholders and all HTML tags to get only translatable text
+  const textOnly = masked.replace(/\{\{\d+\}\}/g, '').replace(/<[^>]*>/g, '');
+  // Extract only Unicode letters
+  const letters = textOnly.replace(/[^\p{L}]/gu, '');
+
+  if (letters.length === 0) return 'lower';
+
+  const upper = letters.toUpperCase();
+  const lower = letters.toLowerCase();
+
+  // Caseless scripts (CJK, Arabic, etc.) — no case distinction
+  if (upper === lower) return 'lower';
+
+  if (letters === upper) return 'upper';
+  if (letters === lower) return 'lower';
+
+  return 'mixed';
 }

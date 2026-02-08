@@ -52,10 +52,13 @@ export interface I18nConfig {
 
 // ---- Masker Types ----
 
+export type CasePattern = 'lower' | 'upper' | 'mixed';
+
 export interface MaskResult {
   masked: string;
   variables: string[];
   tagAttributes: Map<string, Record<string, string>>;
+  casePattern: CasePattern;
 }
 
 export interface MaskerConfig {

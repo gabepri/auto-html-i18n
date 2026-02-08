@@ -30,7 +30,7 @@ It features **Smart Masking**, **Inline Tag Support**, and **Context-Aware Resol
 * **Automatic Detection:** Uses `MutationObserver` to watch for new DOM elements or text changes.
 * **Natural Pluralization:** Handles plurals automatically. "1 item" and "5 items" generate distinct translation keys, eliminating the need for complex client-side pluralization logic.
 * **Polymorphic Translation:** Supports complex variants (gender, formality). The backend can return an object of variants, and the library automatically selects the most specific match based on the user's current context (e.g., `female_formal`).
-* **Smart Masking:** Automatically identifies dynamic content (numbers and symbols, including date formats like `01/15/2024`) and replaces them with placeholders. Proper nouns and other terms can be masked via the `ignoreWords` config.
+* **Smart Masking:** Automatically identifies dynamic content (numbers and symbols, including date formats like `01/15/2024`) and replaces them with placeholders. Proper nouns and other terms can be masked via the `ignoreWords` config. All-uppercase text is normalized to share a cache key with its lowercase equivalent. Casing is restored after translation.
 * **Rich Context Hook:** The translation callback receives the original text, masked text, and extracted variables, giving your backend (or LLM) full context.
 * **Attribute Preservation:** Automatically strips attributes (like `href`, `class`) from tags before translation and re-injects them.
 * **Inline Tag Support:** Intelligently handles HTML tags like `<a>`, `<b>`, or `<span>` as part of the sentence structure.

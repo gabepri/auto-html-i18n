@@ -436,6 +436,116 @@ describe('Translator', () => {
     });
   });
 
+  describe('case normalization', () => {
+    it('should use the same cache key for lowercase and uppercase text', () => {
+      const { translator, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const p1 = document.createElement('p');
+      p1.textContent = 'hello';
+      root.appendChild(p1);
+      translator.processText(p1, 'hello');
+
+      const p2 = document.createElement('p');
+      p2.textContent = 'HELLO';
+      root.appendChild(p2);
+      translator.processText(p2, 'HELLO');
+
+      // Both should use the same key "hello", so only one enqueue
+      expect(enqueueSpy).toHaveBeenCalledTimes(1);
+      expect(enqueueSpy.mock.calls[0]![0].masked).toBe('hello');
+    });
+
+    it('should uppercase the translated result for all-uppercase original', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'hello', 'hola');
+
+      const p = document.createElement('p');
+      p.textContent = 'HELLO';
+      root.appendChild(p);
+
+      translator.processText(p, 'HELLO');
+
+      expect(p.textContent).toBe('HOLA');
+    });
+
+    it('should not uppercase the result for lowercase original', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'hello', 'hola');
+
+      const p = document.createElement('p');
+      p.textContent = 'hello';
+      root.appendChild(p);
+
+      translator.processText(p, 'hello');
+
+      expect(p.textContent).toBe('hola');
+    });
+
+    it('should use separate key for mixed-case text', () => {
+      const { translator, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const p1 = document.createElement('p');
+      p1.textContent = 'hello';
+      root.appendChild(p1);
+      translator.processText(p1, 'hello');
+
+      const p2 = document.createElement('p');
+      p2.textContent = 'Hello';
+      root.appendChild(p2);
+      translator.processText(p2, 'Hello');
+
+      // Mixed case "Hello" should be a separate key from lowercase "hello"
+      expect(enqueueSpy).toHaveBeenCalledTimes(2);
+      expect(enqueueSpy.mock.calls[0]![0].masked).toBe('hello');
+      expect(enqueueSpy.mock.calls[1]![0].masked).toBe('Hello');
+    });
+
+    it('should uppercase result via applyPending for uppercase original', () => {
+      const { translator, store } = createDeps();
+
+      const p = document.createElement('p');
+      p.textContent = 'HELLO';
+      root.appendChild(p);
+
+      translator.processText(p, 'HELLO');
+      expect(p.hasAttribute('data-i18n-pending')).toBe(true);
+
+      store.set('es', 'hello', 'hola');
+      translator.applyPending('hello');
+
+      expect(p.textContent).toBe('HOLA');
+      expect(p.hasAttribute('data-i18n-pending')).toBe(false);
+    });
+
+    it('should uppercase attribute translation for uppercase original', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'enter name', 'ingrese nombre');
+
+      const input = document.createElement('input');
+      input.setAttribute('placeholder', 'ENTER NAME');
+      root.appendChild(input);
+
+      translator.processAttribute(input, 'placeholder', 'ENTER NAME');
+
+      expect(input.getAttribute('placeholder')).toBe('INGRESE NOMBRE');
+    });
+
+    it('should uppercase HTML translation but preserve tag internals', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'click <a0>here</a0> to login', 'haga clic <a0>aqui</a0> para iniciar');
+
+      const p = document.createElement('p');
+      p.innerHTML = 'CLICK <a href="/login">HERE</a> TO LOGIN';
+      root.appendChild(p);
+
+      translator.processText(p, 'CLICK <a href="/login">HERE</a> TO LOGIN');
+
+      expect(p.innerHTML).toBe('HAGA CLIC <a href="/login">AQUI</a> PARA INICIAR');
+    });
+  });
+
   describe('error handling', () => {
     it('should handle node removed from DOM before translation arrives', () => {
       const { translator, store } = createDeps();

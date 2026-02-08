@@ -468,6 +468,137 @@ describe('Masker', () => {
     });
   });
 
+  describe('mask() - case normalization', () => {
+    it('should return casePattern "lower" for all-lowercase text', () => {
+      const masker = createMasker();
+      const result = masker.mask('hello world');
+      expect(result.casePattern).toBe('lower');
+      expect(result.masked).toBe('hello world');
+    });
+
+    it('should return casePattern "upper" for ALL-UPPERCASE text and lowercase the key', () => {
+      const masker = createMasker();
+      const result = masker.mask('HELLO WORLD');
+      expect(result.casePattern).toBe('upper');
+      expect(result.masked).toBe('hello world');
+    });
+
+    it('should return casePattern "mixed" for Title Case text', () => {
+      const masker = createMasker();
+      const result = masker.mask('Hello World');
+      expect(result.casePattern).toBe('mixed');
+      expect(result.masked).toBe('Hello World');
+    });
+
+    it('should detect case ignoring variable placeholders', () => {
+      const masker = createMasker();
+      const result = masker.mask('HELLO 123');
+      expect(result.casePattern).toBe('upper');
+      expect(result.masked).toBe('hello {{0}}');
+    });
+
+    it('should detect case ignoring inline tags', () => {
+      const masker = createMasker();
+      const result = masker.mask('<b>HELLO</b>');
+      expect(result.casePattern).toBe('upper');
+      expect(result.masked).toBe('<b0>hello</b0>');
+    });
+
+    it('should treat text with no letters as "lower"', () => {
+      const masker = createMasker();
+      const result = masker.mask('123 456');
+      expect(result.casePattern).toBe('lower');
+    });
+
+    it('should detect uppercase with ignoreWords as variables', () => {
+      const masker = createMasker({ ignoreWords: ['ACME'] });
+      const result = masker.mask('WELCOME TO ACME');
+      expect(result.casePattern).toBe('upper');
+      expect(result.masked).toBe('welcome to {{0}}');
+    });
+
+    it('should share the same key for lowercase and uppercase inputs', () => {
+      const masker = createMasker();
+      const lower = masker.mask('hello world');
+      const upper = masker.mask('HELLO WORLD');
+      expect(lower.masked).toBe(upper.masked);
+    });
+
+    it('should not normalize mixed case keys', () => {
+      const masker = createMasker();
+      const mixed = masker.mask('Hello World');
+      const lower = masker.mask('hello world');
+      expect(mixed.masked).not.toBe(lower.masked);
+    });
+
+    it('should handle empty string', () => {
+      const masker = createMasker();
+      const result = masker.mask('');
+      expect(result.casePattern).toBe('lower');
+    });
+  });
+
+  describe('applyCasePattern()', () => {
+    it('should uppercase plain text for "upper" pattern', () => {
+      const masker = createMasker();
+      expect(masker.applyCasePattern('hola mundo', 'upper')).toBe('HOLA MUNDO');
+    });
+
+    it('should return text unchanged for "lower" pattern', () => {
+      const masker = createMasker();
+      expect(masker.applyCasePattern('hola mundo', 'lower')).toBe('hola mundo');
+    });
+
+    it('should return text unchanged for "mixed" pattern', () => {
+      const masker = createMasker();
+      expect(masker.applyCasePattern('Hola Mundo', 'mixed')).toBe('Hola Mundo');
+    });
+
+    it('should uppercase text but preserve HTML tag internals', () => {
+      const masker = createMasker();
+      const result = masker.applyCasePattern('click <a href="/login">here</a> now', 'upper');
+      expect(result).toBe('CLICK <a href="/login">HERE</a> NOW');
+    });
+
+    it('should handle text with multiple tags', () => {
+      const masker = createMasker();
+      const result = masker.applyCasePattern('<b>bold</b> and <i>italic</i>', 'upper');
+      expect(result).toBe('<b>BOLD</b> AND <i>ITALIC</i>');
+    });
+  });
+
+  describe('case normalization roundtrip', () => {
+    it('should roundtrip uppercase text through mask → unmask → applyCasePattern', () => {
+      const masker = createMasker();
+      const original = 'CLICK <a href="/login">HERE</a> TO LOGIN';
+      const { masked, variables, tagAttributes, casePattern } = masker.mask(original);
+
+      expect(casePattern).toBe('upper');
+      expect(masked).toBe('click <a0>here</a0> to login');
+
+      // Simulate a translation of the lowercase key
+      const translated = 'cliquez <a0>ici</a0> pour se connecter';
+      const unmasked = masker.unmask(translated, variables, tagAttributes);
+      const final = masker.applyCasePattern(unmasked, casePattern);
+
+      expect(final).toBe('CLIQUEZ <a href="/login">ICI</a> POUR SE CONNECTER');
+    });
+
+    it('should roundtrip lowercase text unchanged', () => {
+      const masker = createMasker();
+      const original = 'click here to login';
+      const { variables, tagAttributes, casePattern } = masker.mask(original);
+
+      expect(casePattern).toBe('lower');
+
+      const translated = 'cliquez ici pour se connecter';
+      const unmasked = masker.unmask(translated, variables, tagAttributes);
+      const final = masker.applyCasePattern(unmasked, casePattern);
+
+      expect(final).toBe('cliquez ici pour se connecter');
+    });
+  });
+
   describe('runtime ignoreWords mutation', () => {
     describe('getIgnoreWords()', () => {
       it('should return the current ignore words', () => {
