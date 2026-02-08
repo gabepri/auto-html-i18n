@@ -120,6 +120,7 @@ The `I18nObserver` constructor accepts a config object with the following proper
 | `originalAttribute` | `string` | `'data-i18n-original'` | The attribute name used to store the original text on translated elements. |
 | `pendingAttribute` | `string` | `'data-i18n-pending'` | The attribute name added to elements while a translation is in-flight. |
 | `keyAttribute` | `string` | `'data-i18n-key'` | If this attribute is present on an element, its value is used as the cache key instead of the computed masked string. |
+| `ignoreAttribute` | `string` | `'data-i18n-ignore'` | The attribute name that marks an element (and its entire subtree) to be completely skipped by the observer. |
 | `debug` | `boolean` | `false` | When enabled, each item in `onMissingTranslation` includes a `debug` field with DOM context for bug reporting. See [Debugging](#-debugging). |
 
 ### The `onMissingTranslation` Item Object
@@ -187,7 +188,7 @@ Your backend must return a JSON object where the **keys** match the `masked` str
 2.  **Preserve Tags:** If the input contains `<b0>...</b0>`, the output must also contain `<b0>...</b0>` wrapping the corresponding translated text.
 3.  **Context Hints:** Pass the `original` string to your LLM prompt to help it understand context (e.g., that "Save" is a button, or "John" is a name), but always key your response by the `masked` string.
 
-> **Privacy Note:** All visible text content is sent to your `onMissingTranslation` endpoint. If your application displays sensitive data, consider excluding those DOM regions using `ignoreSelectors`.
+> **Privacy Note:** All visible text content is sent to your `onMissingTranslation` endpoint. If your application displays sensitive data, consider excluding those DOM regions using `ignoreSelectors` or the `data-i18n-ignore` attribute.
 
 ---
 
@@ -321,6 +322,7 @@ The library uses three data attributes during translation (all configurable via 
 1.  **`data-i18n-original`:** Stores the original text when a translation is applied. The observer checks this attribute to skip nodes it has already translated, preventing infinite loops. It also enables `setLocale()` and `setContext()` to re-translate from the original source.
 2.  **`data-i18n-pending`:** Added to elements while a translation request is in-flight. Removed once the translation is applied. Use this for CSS-based FOUC mitigation (e.g., `[data-i18n-pending] { visibility: hidden; }`).
 3.  **`data-i18n-key`:** *(Optional, user-provided)* If present on an element, its value is used as the cache key instead of the computed masked string. This is useful when automatic masking produces an ambiguous key, or when you want to share a translation across elements with different source text.
+4.  **`data-i18n-ignore`:** *(Optional, user-provided)* If present on an element, the observer will completely skip that element and its entire subtree — no text, attributes, or mutations will be processed. Useful for excluding regions that contain sensitive data, code snippets, or content that should never be translated.
 
 **Example:**
 

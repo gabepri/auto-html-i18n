@@ -46,6 +46,7 @@ export interface I18nConfig {
   originalAttribute?: string;
   pendingAttribute?: string;
   keyAttribute?: string;
+  ignoreAttribute?: string;
   debug?: boolean;
 }
 
@@ -89,6 +90,7 @@ export interface ObserverConfig {
   originalAttribute: string;
   pendingAttribute: string;
   keyAttribute: string;
+  ignoreAttribute: string;
   onTextFound: (element: Element, text: string) => void;
   onAttributeFound: (element: Element, attr: string, value: string) => void;
 }

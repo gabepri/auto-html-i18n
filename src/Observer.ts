@@ -259,6 +259,9 @@ export class Observer {
     let current: Node | null = node;
     while (current && current !== this.config.rootElement) {
       if (current instanceof Element) {
+        if (current.hasAttribute(this.config.ignoreAttribute)) {
+          return true;
+        }
         for (const selector of this.config.ignoreSelectors) {
           if (current.matches(selector)) {
             return true;

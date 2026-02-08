@@ -20,6 +20,7 @@ const DEFAULTS = {
   originalAttribute: 'data-i18n-original',
   pendingAttribute: 'data-i18n-pending',
   keyAttribute: 'data-i18n-key',
+  ignoreAttribute: 'data-i18n-ignore',
   debug: false,
 };
 
@@ -49,6 +50,7 @@ export class I18nObserver {
       originalAttribute: userConfig.originalAttribute ?? DEFAULTS.originalAttribute,
       pendingAttribute: userConfig.pendingAttribute ?? DEFAULTS.pendingAttribute,
       keyAttribute: userConfig.keyAttribute ?? DEFAULTS.keyAttribute,
+      ignoreAttribute: userConfig.ignoreAttribute ?? DEFAULTS.ignoreAttribute,
       debug: userConfig.debug ?? DEFAULTS.debug,
       locale: userConfig.locale,
       onMissingTranslation: userConfig.onMissingTranslation,
@@ -115,6 +117,7 @@ export class I18nObserver {
       originalAttribute: config.originalAttribute,
       pendingAttribute: config.pendingAttribute,
       keyAttribute: config.keyAttribute,
+      ignoreAttribute: config.ignoreAttribute,
       onTextFound: (element, text) => this.translator.processText(element, text),
       onAttributeFound: (element, attr, value) => this.translator.processAttribute(element, attr, value),
     });

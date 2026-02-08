@@ -18,6 +18,7 @@ function createObserver(
     originalAttribute: 'data-i18n-original',
     pendingAttribute: 'data-i18n-pending',
     keyAttribute: 'data-i18n-key',
+    ignoreAttribute: 'data-i18n-ignore',
     onTextFound,
     onAttributeFound,
     ...overrides,
@@ -297,6 +298,72 @@ describe('Observer', () => {
       observer.reprocessAll();
 
       expect(onTextFound).toHaveBeenCalledTimes(2);
+
+      observer.stop();
+    });
+  });
+
+  describe('ignoreAttribute', () => {
+    it('should skip elements with the ignore attribute during initial scan', () => {
+      root.innerHTML = '<div data-i18n-ignore><p>Ignored text</p></div><p>Visible text</p>';
+      const { observer, onTextFound, onAttributeFound } = createObserver(root);
+      observer.start();
+
+      expect(onTextFound).toHaveBeenCalledTimes(1);
+      expect(onTextFound.mock.calls[0]![1]).toBe('Visible text');
+      expect(onAttributeFound).not.toHaveBeenCalled();
+
+      observer.stop();
+    });
+
+    it('should skip attributes on elements inside ignored subtree', () => {
+      root.innerHTML = '<div data-i18n-ignore><input placeholder="Ignored" /></div><input placeholder="Visible" />';
+      const { observer, onAttributeFound } = createObserver(root);
+      observer.start();
+
+      expect(onAttributeFound).toHaveBeenCalledTimes(1);
+      expect(onAttributeFound.mock.calls[0]![2]).toBe('Visible');
+
+      observer.stop();
+    });
+
+    it('should skip deeply nested children under ignored element', () => {
+      root.innerHTML = '<div data-i18n-ignore><section><article><p>Deep ignored</p></article></section></div><p>Visible</p>';
+      const { observer, onTextFound } = createObserver(root);
+      observer.start();
+
+      expect(onTextFound).toHaveBeenCalledTimes(1);
+      expect(onTextFound.mock.calls[0]![1]).toBe('Visible');
+
+      observer.stop();
+    });
+
+    it('should not report mutations inside ignored element', async () => {
+      root.innerHTML = '<div data-i18n-ignore></div>';
+      const { observer, onTextFound } = createObserver(root);
+      observer.start();
+      onTextFound.mockClear();
+
+      const ignored = root.querySelector('[data-i18n-ignore]')!;
+      const p = document.createElement('p');
+      p.textContent = 'Dynamic ignored text';
+      ignored.appendChild(p);
+      await waitForMutations();
+
+      expect(onTextFound).not.toHaveBeenCalled();
+
+      observer.stop();
+    });
+
+    it('should still process siblings of ignored elements', () => {
+      root.innerHTML = '<p>Before</p><div data-i18n-ignore><p>Ignored</p></div><p>After</p>';
+      const { observer, onTextFound } = createObserver(root);
+      observer.start();
+
+      expect(onTextFound).toHaveBeenCalledTimes(2);
+      const texts = onTextFound.mock.calls.map((call: unknown[]) => call[1]);
+      expect(texts).toContain('Before');
+      expect(texts).toContain('After');
 
       observer.stop();
     });
