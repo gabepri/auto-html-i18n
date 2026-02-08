@@ -196,6 +196,50 @@ describe('Masker', () => {
     });
   });
 
+  describe('mask() - URLs and emails', () => {
+    it('should mask an https URL', () => {
+      const masker = createMasker();
+      const result = masker.mask('Visit https://example.com for more');
+      expect(result.masked).toBe('Visit {{0}} for more');
+      expect(result.variables).toEqual(['https://example.com']);
+    });
+
+    it('should mask an http URL', () => {
+      const masker = createMasker();
+      const result = masker.mask('Go to http://example.com/page');
+      expect(result.masked).toBe('Go to {{0}}');
+      expect(result.variables).toEqual(['http://example.com/page']);
+    });
+
+    it('should mask a URL with path, query, and fragment', () => {
+      const masker = createMasker();
+      const result = masker.mask('See https://example.com/path?q=1&b=2#section for details');
+      expect(result.masked).toBe('See {{0}} for details');
+      expect(result.variables).toEqual(['https://example.com/path?q=1&b=2#section']);
+    });
+
+    it('should mask an email address', () => {
+      const masker = createMasker();
+      const result = masker.mask('Contact us at support@example.com today');
+      expect(result.masked).toBe('Contact us at {{0}} today');
+      expect(result.variables).toEqual(['support@example.com']);
+    });
+
+    it('should mask email with plus and dots', () => {
+      const masker = createMasker();
+      const result = masker.mask('Email user.name+tag@sub.example.co.uk');
+      expect(result.masked).toBe('Email {{0}}');
+      expect(result.variables).toEqual(['user.name+tag@sub.example.co.uk']);
+    });
+
+    it('should mask both URL and email in the same text', () => {
+      const masker = createMasker();
+      const result = masker.mask('Visit https://example.com or email info@example.com');
+      expect(result.masked).toBe('Visit {{0}} or email {{1}}');
+      expect(result.variables).toEqual(['https://example.com', 'info@example.com']);
+    });
+  });
+
   describe('mask() - inline tag normalization', () => {
     it('should normalize a single inline tag', () => {
       const masker = createMasker();

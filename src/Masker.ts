@@ -217,14 +217,20 @@ export class Masker {
       parts.push(escapeRegex(word));
     }
 
-    // 2. Date patterns (must come before number patterns)
+    // 2. URLs (must come before dates/numbers to match as a whole)
+    parts.push('https?://[^\\s<>]+');
+
+    // 3. Email addresses (must come before dates/numbers)
+    parts.push('[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}');
+
+    // 4. Date patterns (must come before number patterns)
     // Matches: MM/DD/YYYY, YYYY-MM-DD, DD.MM.YYYY, etc.
     parts.push('\\d{1,4}[/.-]\\d{1,2}[/.-]\\d{1,4}');
 
-    // 3. Numbers (including negative and decimals)
+    // 5. Numbers (including negative and decimals)
     parts.push('-?\\d+(?:\\.\\d+)?');
 
-    // 4. Standalone symbols (©, ®, ™, currency, etc.) — not translatable
+    // 6. Standalone symbols (©, ®, ™, currency, etc.) — not translatable
     parts.push('[©®™$€£¥¢₹₽§¶†‡•°±¤%]');
 
     if (parts.length === 0) {
