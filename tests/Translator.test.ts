@@ -33,6 +33,7 @@ function createDeps(overrides: {
     pendingAttribute: 'data-i18n-pending',
     keyAttribute: 'data-i18n-key',
     onMissingTranslation,
+    debug: false,
     ...overrides.configOverrides,
   };
 
@@ -314,6 +315,100 @@ describe('Translator', () => {
       // Simulate translation arriving - should not throw
       store.set('es', 'Hello', 'Hola');
       expect(() => translator.applyPending('Hello')).not.toThrow();
+    });
+  });
+
+  describe('debug mode', () => {
+    it('should include debug info on enqueued items when debug=true', () => {
+      const { translator, queue } = createDeps({ configOverrides: { debug: true } });
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const p = document.createElement('p');
+      p.textContent = 'Hello';
+      root.appendChild(p);
+
+      translator.processText(p, 'Hello');
+
+      expect(enqueueSpy).toHaveBeenCalledTimes(1);
+      const item = enqueueSpy.mock.calls[0]![0];
+      expect(item.debug).toBeDefined();
+      expect(item.debug!.elementOpenTag).toBe('<p>');
+      expect(item.debug!.source).toBe('text');
+      expect(item.debug!.childElements).toEqual([]);
+    });
+
+    it('should not include debug info when debug=false', () => {
+      const { translator, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const p = document.createElement('p');
+      p.textContent = 'Hello';
+      root.appendChild(p);
+
+      translator.processText(p, 'Hello');
+
+      expect(enqueueSpy).toHaveBeenCalledTimes(1);
+      expect(enqueueSpy.mock.calls[0]![0].debug).toBeUndefined();
+    });
+
+    it('should capture child elements in debug info', () => {
+      const { translator, queue } = createDeps({ configOverrides: { debug: true } });
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const btn = document.createElement('button');
+      const div = document.createElement('div');
+      div.className = 'spinner';
+      const span = document.createElement('span');
+      span.className = 'label';
+      span.textContent = 'Next';
+      btn.appendChild(div);
+      btn.appendChild(span);
+      root.appendChild(btn);
+
+      translator.processText(btn, btn.innerHTML);
+
+      expect(enqueueSpy).toHaveBeenCalledTimes(1);
+      const debug = enqueueSpy.mock.calls[0]![0].debug!;
+      expect(debug.childElements).toEqual([
+        { tag: 'DIV', classes: 'spinner' },
+        { tag: 'SPAN', classes: 'label' },
+      ]);
+    });
+
+    it('should set source to attribute name for processAttribute', () => {
+      const { translator, queue } = createDeps({ configOverrides: { debug: true } });
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const input = document.createElement('input');
+      input.setAttribute('placeholder', 'Enter name');
+      root.appendChild(input);
+
+      translator.processAttribute(input, 'placeholder', 'Enter name');
+
+      expect(enqueueSpy).toHaveBeenCalledTimes(1);
+      const debug = enqueueSpy.mock.calls[0]![0].debug!;
+      expect(debug.source).toBe('attribute:placeholder');
+      expect(debug.elementOpenTag).toContain('<input');
+    });
+
+    it('should include element attributes in elementOpenTag', () => {
+      const { translator, queue } = createDeps({ configOverrides: { debug: true } });
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const btn = document.createElement('button');
+      btn.id = 'submit-btn';
+      btn.className = 'btn primary';
+      btn.setAttribute('data-v-abc123', '');
+      btn.textContent = 'Submit';
+      root.appendChild(btn);
+
+      translator.processText(btn, 'Submit');
+
+      const debug = enqueueSpy.mock.calls[0]![0].debug!;
+      expect(debug.elementOpenTag).toContain('id="submit-btn"');
+      expect(debug.elementOpenTag).toContain('class="btn primary"');
+      expect(debug.elementOpenTag).toContain('data-v-abc123');
+      expect(debug.elementOpenTag).toMatch(/^<button\s/);
     });
   });
 });

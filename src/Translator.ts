@@ -1,4 +1,4 @@
-import type { TranslationEntry, OnMissingTranslationCallback, MaskResult } from './types';
+import type { TranslationEntry, TranslationItem, TranslationItemDebug, OnMissingTranslationCallback, MaskResult } from './types';
 import { Store } from './Store';
 import { Queue } from './Queue';
 import { Masker } from './Masker';
@@ -10,6 +10,7 @@ export interface TranslatorConfig {
   pendingAttribute: string;
   keyAttribute: string;
   onMissingTranslation: OnMissingTranslationCallback;
+  debug: boolean;
 }
 
 interface PendingNode {
@@ -57,6 +58,9 @@ export class Translator {
       return;
     }
 
+    // Build item before mutating the element so debug info captures original state
+    const item = this.buildItem(cacheKey, originalText, maskResult.variables, element, 'text');
+
     element.setAttribute(this.config.pendingAttribute, '');
 
     if (entry && (entry.status === 'pending' || entry.status === 'reported')) {
@@ -66,11 +70,7 @@ export class Translator {
 
     this.store.markPending(this.config.locale, cacheKey);
     this.trackPendingNode(cacheKey, element, maskResult, originalText, isHtml);
-    this.queue.enqueue({
-      masked: cacheKey,
-      original: originalText,
-      variables: maskResult.variables,
-    });
+    this.queue.enqueue(item);
   }
 
   processAttribute(element: Element, attr: string, originalValue: string): void {
@@ -90,11 +90,9 @@ export class Translator {
 
     if (!entry) {
       this.store.markPending(this.config.locale, cacheKey);
-      this.queue.enqueue({
-        masked: cacheKey,
-        original: originalValue,
-        variables: maskResult.variables,
-      });
+      this.queue.enqueue(
+        this.buildItem(cacheKey, originalValue, maskResult.variables, element, `attribute:${attr}`)
+      );
     }
 
     const pendingNode: PendingNode = {
@@ -154,14 +152,11 @@ export class Translator {
       if (entry && entry.status === 'resolved' && entry.value !== null) {
         this.applyTranslation(element, entry.value, maskResult, originalText, isHtml);
       } else if (!entry) {
+        const item = this.buildItem(cacheKey, originalText, maskResult.variables, element, 'text');
         element.setAttribute(this.config.pendingAttribute, '');
         this.store.markPending(this.config.locale, cacheKey);
         this.trackPendingNode(cacheKey, element, maskResult, originalText, isHtml);
-        this.queue.enqueue({
-          masked: cacheKey,
-          original: originalText,
-          variables: maskResult.variables,
-        });
+        this.queue.enqueue(item);
       }
     }
   }
@@ -219,5 +214,43 @@ export class Translator {
       this.pendingNodes.set(cacheKey, set);
     }
     set.add(node);
+  }
+
+  private buildItem(
+    cacheKey: string,
+    originalText: string,
+    variables: string[],
+    element: Element,
+    source: TranslationItemDebug['source']
+  ): TranslationItem {
+    const item: TranslationItem = {
+      masked: cacheKey,
+      original: originalText,
+      variables,
+    };
+    if (this.config.debug) {
+      item.debug = this.collectDebugInfo(element, source);
+    }
+    return item;
+  }
+
+  private collectDebugInfo(
+    element: Element,
+    source: TranslationItemDebug['source']
+  ): TranslationItemDebug {
+    const childElements: TranslationItemDebug['childElements'] = [];
+    for (const child of element.children) {
+      childElements.push({
+        tag: child.tagName,
+        classes: child.className,
+      });
+    }
+
+    // Extract just the opening tag from outerHTML
+    const outer = element.outerHTML;
+    const closeIdx = outer.indexOf('>');
+    const elementOpenTag = closeIdx !== -1 ? outer.slice(0, closeIdx + 1) : outer;
+
+    return { elementOpenTag, childElements, source };
   }
 }

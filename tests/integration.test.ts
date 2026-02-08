@@ -387,6 +387,49 @@ describe('Integration Tests', () => {
     });
   });
 
+  describe('debug mode', () => {
+    it('should include debug info in onMissingTranslation items when debug=true', async () => {
+      const onMissing = vi.fn().mockResolvedValue({ 'Hello': 'Hola' });
+
+      root.innerHTML = '<p>Hello</p>';
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        rootElement: root,
+        debug: true,
+      });
+
+      i18n.start();
+      await flushDebounce();
+
+      expect(onMissing).toHaveBeenCalledTimes(1);
+      const item = onMissing.mock.calls[0]![0][0]!;
+      expect(item.debug).toBeDefined();
+      expect(item.debug.elementOpenTag).toBe('<p>');
+      expect(item.debug.source).toBe('text');
+    });
+
+    it('should not include debug info when debug is not set', async () => {
+      const onMissing = vi.fn().mockResolvedValue({ 'Hello': 'Hola' });
+
+      root.innerHTML = '<p>Hello</p>';
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        rootElement: root,
+      });
+
+      i18n.start();
+      await flushDebounce();
+
+      expect(onMissing).toHaveBeenCalledTimes(1);
+      const item = onMissing.mock.calls[0]![0][0]!;
+      expect(item.debug).toBeUndefined();
+    });
+  });
+
   describe('batch size enforcement', () => {
     it('should split large batches according to maxBatchSize', async () => {
       const onMissing = vi.fn().mockResolvedValue({});

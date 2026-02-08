@@ -20,6 +20,7 @@ It features **Smart Masking**, **Inline Tag Support**, and **Context-Aware Resol
 - [Browser Support](#-browser-support)
 - [Performance](#-performance)
 - [Security](#-security)
+- [Debugging](#-debugging)
 - [Framework Integration](#-framework-integration)
 - [Contributors Guide](#-contributors-guide)
 - [License](#-license)
@@ -119,6 +120,7 @@ The `I18nObserver` constructor accepts a config object with the following proper
 | `originalAttribute` | `string` | `'data-i18n-original'` | The attribute name used to store the original text on translated elements. |
 | `pendingAttribute` | `string` | `'data-i18n-pending'` | The attribute name added to elements while a translation is in-flight. |
 | `keyAttribute` | `string` | `'data-i18n-key'` | If this attribute is present on an element, its value is used as the cache key instead of the computed masked string. |
+| `debug` | `boolean` | `false` | When enabled, each item in `onMissingTranslation` includes a `debug` field with DOM context for bug reporting. See [Debugging](#-debugging). |
 
 ### The `onMissingTranslation` Item Object
 
@@ -129,6 +131,11 @@ The `items` array passed to your callback contains objects with this structure:
   masked: string;      // "Hello <b0>{{0}}</b0>" (The Cache Key)
   original: string;    // "Hello <b>Mary</b>" (For LLM Context)
   variables: string[]; // ["Mary"]
+  debug?: {            // Only present when debug: true
+    elementOpenTag: string;    // '<p class="greeting">'
+    childElements: Array<{ tag: string; classes: string }>;
+    source: 'text' | `attribute:${string}`;
+  };
 }
 ```
 
@@ -416,6 +423,62 @@ The library reconstructs translated HTML by re-injecting inline tags and attribu
 - **Tag allowlist:** Only tags listed in `allowedInlineTags` are permitted in restored output. Any tags not in the allowlist are escaped as plain text.
 - **Attribute stripping:** Event handler attributes (e.g., `onclick`, `onerror`) are always stripped from restored tags, even if they appear in the translation response.
 - **Recommendation:** Ensure your translation backend is authenticated and returns sanitized content. If using an LLM, validate responses before returning them to the client.
+
+---
+
+## 🐛 Debugging
+
+When something looks wrong with how text is being captured or translated, enable `debug: true` to get DOM context on every translation item. This makes it easy to understand what's happening and to file reproducible bug reports.
+
+```javascript
+const i18n = new I18nObserver({
+  locale: 'es',
+  debug: true, // Enable debug mode
+  onMissingTranslation: async (items, locale) => {
+    for (const item of items) {
+      if (item.debug) {
+        console.log('Translation item:', {
+          masked: item.masked,
+          original: item.original,
+          variables: item.variables,
+          debug: item.debug,
+        });
+      }
+    }
+    // ... your translation logic
+  }
+});
+```
+
+Each item's `debug` field contains:
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `elementOpenTag` | `string` | The opening HTML tag of the element, including all attributes. E.g., `'<button class="next-btn" data-v-abc="">'`. |
+| `childElements` | `Array<{ tag, classes }>` | Direct child elements of the target element. Useful for understanding aggregation behavior. |
+| `source` | `string` | How the text was found: `'text'` for text content, or `'attribute:placeholder'`, `'attribute:title'`, etc. for attributes. |
+
+### Reproducing an Issue
+
+The `debug` output is designed to be copy-paste ready for a test case. Given `elementOpenTag` and `original` (the innerHTML), you can reconstruct the DOM:
+
+```
+${debug.elementOpenTag}${item.original}</${closing tag}>
+```
+
+For example, if a translation item looks wrong and the debug output shows:
+```json
+{
+  "elementOpenTag": "<button>",
+  "childElements": [
+    { "tag": "DIV", "classes": "spinner" },
+    { "tag": "SPAN", "classes": "label" }
+  ],
+  "source": "text"
+}
+```
+
+You can immediately see the DOM structure and reconstruct it for a bug report.
 
 ---
 

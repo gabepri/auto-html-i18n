@@ -4,5 +4,6 @@ export type {
   TranslationEntry,
   VariantObject,
   TranslationItem,
+  TranslationItemDebug,
   OnMissingTranslationCallback,
 } from './types';

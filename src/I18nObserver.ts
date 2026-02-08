@@ -20,6 +20,7 @@ const DEFAULTS = {
   originalAttribute: 'data-i18n-original',
   pendingAttribute: 'data-i18n-pending',
   keyAttribute: 'data-i18n-key',
+  debug: false,
 };
 
 export class I18nObserver {
@@ -48,6 +49,7 @@ export class I18nObserver {
       originalAttribute: userConfig.originalAttribute ?? DEFAULTS.originalAttribute,
       pendingAttribute: userConfig.pendingAttribute ?? DEFAULTS.pendingAttribute,
       keyAttribute: userConfig.keyAttribute ?? DEFAULTS.keyAttribute,
+      debug: userConfig.debug ?? DEFAULTS.debug,
       locale: userConfig.locale,
       onMissingTranslation: userConfig.onMissingTranslation,
     };
@@ -78,6 +80,7 @@ export class I18nObserver {
         pendingAttribute: config.pendingAttribute,
         keyAttribute: config.keyAttribute,
         onMissingTranslation: config.onMissingTranslation,
+        debug: config.debug,
       }
     );
 
@@ -100,6 +103,7 @@ export class I18nObserver {
         pendingAttribute: config.pendingAttribute,
         keyAttribute: config.keyAttribute,
         onMissingTranslation: config.onMissingTranslation,
+        debug: config.debug,
       }
     );
 

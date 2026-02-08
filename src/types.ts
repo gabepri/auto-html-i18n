@@ -6,11 +6,19 @@ export type TranslationEntry = string | VariantObject;
 /** Maps variant keys (e.g. "female_formal") to translated strings */
 export type VariantObject = Record<string, string>;
 
+/** DOM context included when debug mode is enabled */
+export interface TranslationItemDebug {
+  elementOpenTag: string;
+  childElements: Array<{ tag: string; classes: string }>;
+  source: 'text' | `attribute:${string}`;
+}
+
 /** Item sent to the onMissingTranslation callback */
 export interface TranslationItem {
   masked: string;
   original: string;
   variables: string[];
+  debug?: TranslationItemDebug;
 }
 
 /** The callback signature for missing translations */
@@ -38,6 +46,7 @@ export interface I18nConfig {
   originalAttribute?: string;
   pendingAttribute?: string;
   keyAttribute?: string;
+  debug?: boolean;
 }
 
 // ---- Masker Types ----
