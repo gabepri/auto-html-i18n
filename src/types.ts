@@ -59,6 +59,8 @@ export interface MaskResult {
   variables: string[];
   tagAttributes: Map<string, Record<string, string>>;
   casePattern: CasePattern;
+  leadingWhitespace: string;
+  trailingWhitespace: string;
 }
 
 export interface MaskerConfig {

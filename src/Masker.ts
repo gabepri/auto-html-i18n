@@ -14,7 +14,7 @@ export class Masker {
 
   mask(text: string): MaskResult {
     if (text === '') {
-      return { masked: '', variables: [], tagAttributes: new Map(), casePattern: 'lower' };
+      return { masked: '', variables: [], tagAttributes: new Map(), casePattern: 'lower', leadingWhitespace: '', trailingWhitespace: '' };
     }
 
     // Phase 1: Normalize inline tags (strip attributes, assign indices)
@@ -108,7 +108,19 @@ export class Masker {
       masked = masked.toLowerCase();
     }
 
-    return { masked, variables, tagAttributes, casePattern };
+    // Trim leading/trailing whitespace from the key, preserving it for restoration
+    const leadingMatch = /^\s+/.exec(masked);
+    const trailingMatch = /\s+$/.exec(masked);
+    const leadingWhitespace = leadingMatch ? leadingMatch[0] : '';
+    const trailingWhitespace = trailingMatch ? trailingMatch[0] : '';
+    if (leadingWhitespace || trailingWhitespace) {
+      masked = masked.slice(
+        leadingWhitespace.length,
+        masked.length - trailingWhitespace.length
+      );
+    }
+
+    return { masked, variables, tagAttributes, casePattern, leadingWhitespace, trailingWhitespace };
   }
 
   applyCasePattern(text: string, casePattern: CasePattern): string {

@@ -18,6 +18,8 @@ interface PendingNode {
   variables: string[];
   tagAttributes: Map<string, Record<string, string>>;
   casePattern: CasePattern;
+  leadingWhitespace: string;
+  trailingWhitespace: string;
   originalText: string;
   isAttribute?: boolean;
   attrName?: string;
@@ -61,7 +63,7 @@ export class Translator {
     const entry = this.store.get(this.config.locale, cacheKey);
 
     if (entry && entry.status === 'resolved' && entry.value !== null) {
-      this.applyTranslation(element, entry.value, maskResult, originalText, isHtml);
+      this.applyTranslation(element, entry.value, maskResult, originalText, isHtml, maskResult.casePattern);
       return;
     }
 
@@ -96,7 +98,7 @@ export class Translator {
       if (resolved) {
         const unmasked = this.masker.unmask(resolved, maskResult.variables, maskResult.tagAttributes);
         const output = this.masker.applyCasePattern(unmasked, maskResult.casePattern);
-        element.setAttribute(attr, output);
+        element.setAttribute(attr, maskResult.leadingWhitespace + output + maskResult.trailingWhitespace);
       }
       return;
     }
@@ -113,6 +115,8 @@ export class Translator {
       variables: maskResult.variables,
       tagAttributes: maskResult.tagAttributes,
       casePattern: maskResult.casePattern,
+      leadingWhitespace: maskResult.leadingWhitespace,
+      trailingWhitespace: maskResult.trailingWhitespace,
       originalText: originalValue,
       isAttribute: true,
       attrName: attr,
@@ -136,7 +140,7 @@ export class Translator {
         if (resolved) {
           const unmasked = this.masker.unmask(resolved, node.variables, node.tagAttributes);
           const output = this.masker.applyCasePattern(unmasked, node.casePattern);
-          node.element.setAttribute(node.attrName, output);
+          node.element.setAttribute(node.attrName, node.leadingWhitespace + output + node.trailingWhitespace);
         }
       } else {
         this.applyTranslation(node.element, entry.value, {
@@ -144,7 +148,9 @@ export class Translator {
           variables: node.variables,
           tagAttributes: node.tagAttributes,
           casePattern: node.casePattern,
-        }, node.originalText, node.isHtml);
+          leadingWhitespace: node.leadingWhitespace,
+          trailingWhitespace: node.trailingWhitespace,
+        }, node.originalText, node.isHtml, node.casePattern);
       }
     }
 
@@ -171,7 +177,7 @@ export class Translator {
 
       const entry = this.store.get(this.config.locale, cacheKey);
       if (entry && entry.status === 'resolved' && entry.value !== null) {
-        this.applyTranslation(element, entry.value, maskResult, originalText, isHtml);
+        this.applyTranslation(element, entry.value, maskResult, originalText, isHtml, maskResult.casePattern);
       } else if (!entry) {
         const item = this.buildItem(cacheKey, originalText, maskResult.variables, element, 'text');
         element.setAttribute(this.config.pendingAttribute, '');
@@ -195,13 +201,14 @@ export class Translator {
     value: TranslationEntry,
     maskResult: MaskResult,
     originalText: string,
-    isHtml: boolean
+    isHtml: boolean,
+    casePattern: CasePattern
   ): void {
     const resolved = this.resolver.resolve(value);
     if (!resolved) return;
 
     const unmasked = this.masker.unmask(resolved, maskResult.variables, maskResult.tagAttributes);
-    const output = this.masker.applyCasePattern(unmasked, maskResult.casePattern);
+    const output = maskResult.leadingWhitespace + this.masker.applyCasePattern(unmasked, casePattern) + maskResult.trailingWhitespace;
 
     if (isHtml) {
       element.innerHTML = output;
@@ -225,6 +232,8 @@ export class Translator {
       variables: maskResult.variables,
       tagAttributes: maskResult.tagAttributes,
       casePattern: maskResult.casePattern,
+      leadingWhitespace: maskResult.leadingWhitespace,
+      trailingWhitespace: maskResult.trailingWhitespace,
       originalText,
       isHtml,
     });

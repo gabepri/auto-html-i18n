@@ -567,6 +567,77 @@ describe('Masker', () => {
     });
   });
 
+  describe('mask() - whitespace trimming', () => {
+    it('should trim leading whitespace from the masked key', () => {
+      const masker = createMasker();
+      const result = masker.mask(' hello world');
+      expect(result.masked).toBe('hello world');
+      expect(result.leadingWhitespace).toBe(' ');
+      expect(result.trailingWhitespace).toBe('');
+    });
+
+    it('should trim trailing whitespace from the masked key', () => {
+      const masker = createMasker();
+      const result = masker.mask('hello world  ');
+      expect(result.masked).toBe('hello world');
+      expect(result.leadingWhitespace).toBe('');
+      expect(result.trailingWhitespace).toBe('  ');
+    });
+
+    it('should trim both leading and trailing whitespace', () => {
+      const masker = createMasker();
+      const result = masker.mask('  hello world  ');
+      expect(result.masked).toBe('hello world');
+      expect(result.leadingWhitespace).toBe('  ');
+      expect(result.trailingWhitespace).toBe('  ');
+    });
+
+    it('should produce the same key with and without leading space', () => {
+      const masker = createMasker();
+      const withSpace = masker.mask(' hello');
+      const withoutSpace = masker.mask('hello');
+      expect(withSpace.masked).toBe(withoutSpace.masked);
+    });
+
+    it('should trim whitespace around masked variables', () => {
+      const masker = createMasker();
+      const result = masker.mask(' 1 of 3');
+      expect(result.masked).toBe('{{0}} of {{1}}');
+      expect(result.leadingWhitespace).toBe(' ');
+    });
+
+    it('should have empty whitespace fields when no trimming needed', () => {
+      const masker = createMasker();
+      const result = masker.mask('hello world');
+      expect(result.leadingWhitespace).toBe('');
+      expect(result.trailingWhitespace).toBe('');
+    });
+
+    it('should handle tabs and newlines as whitespace', () => {
+      const masker = createMasker();
+      const result = masker.mask('\n\thello world\t');
+      expect(result.masked).toBe('hello world');
+      expect(result.leadingWhitespace).toBe('\n\t');
+      expect(result.trailingWhitespace).toBe('\t');
+    });
+
+    it('should handle empty string', () => {
+      const masker = createMasker();
+      const result = masker.mask('');
+      expect(result.leadingWhitespace).toBe('');
+      expect(result.trailingWhitespace).toBe('');
+    });
+
+    it('should trim after case normalization', () => {
+      const masker = createMasker();
+      const result = masker.mask(' HELLO WORLD ');
+      expect(result.masked).toBe('hello world');
+      expect(result.casePattern).toBe('upper');
+      expect(result.leadingWhitespace).toBe(' ');
+      expect(result.trailingWhitespace).toBe(' ');
+    });
+  });
+
   describe('case normalization roundtrip', () => {
     it('should roundtrip uppercase text through mask → unmask → applyCasePattern', () => {
       const masker = createMasker();

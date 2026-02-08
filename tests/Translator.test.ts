@@ -546,6 +546,96 @@ describe('Translator', () => {
     });
   });
 
+  describe('whitespace restoration', () => {
+    it('should trim leading space from cache key but restore in translation', () => {
+      const { translator, store } = createDeps();
+      // Key is trimmed: "{{0}} of {{1}}"
+      store.set('es', '{{0}} of {{1}}', '{{0}} de {{1}}');
+
+      const span = document.createElement('span');
+      span.textContent = ' 1 of 3';
+      root.appendChild(span);
+
+      translator.processText(span, ' 1 of 3');
+
+      expect(span.textContent).toBe(' 1 de 3');
+    });
+
+    it('should share key between text with and without leading space', () => {
+      const { translator, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const p1 = document.createElement('p');
+      p1.textContent = 'hello';
+      root.appendChild(p1);
+      translator.processText(p1, 'hello');
+
+      const p2 = document.createElement('p');
+      p2.textContent = ' hello';
+      root.appendChild(p2);
+      translator.processText(p2, ' hello');
+
+      // Both should use the same trimmed key "hello"
+      expect(enqueueSpy).toHaveBeenCalledTimes(1);
+      expect(enqueueSpy.mock.calls[0]![0].masked).toBe('hello');
+    });
+
+    it('should restore trailing whitespace after translation', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'hello', 'hola');
+
+      const p = document.createElement('p');
+      p.textContent = 'hello  ';
+      root.appendChild(p);
+
+      translator.processText(p, 'hello  ');
+
+      expect(p.textContent).toBe('hola  ');
+    });
+
+    it('should restore whitespace via applyPending', () => {
+      const { translator, store } = createDeps();
+
+      const span = document.createElement('span');
+      span.textContent = ' hello ';
+      root.appendChild(span);
+
+      translator.processText(span, ' hello ');
+      expect(span.hasAttribute('data-i18n-pending')).toBe(true);
+
+      store.set('es', 'hello', 'hola');
+      translator.applyPending('hello');
+
+      expect(span.textContent).toBe(' hola ');
+    });
+
+    it('should restore whitespace for attribute translations', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'enter name', 'ingrese nombre');
+
+      const input = document.createElement('input');
+      input.setAttribute('placeholder', ' enter name ');
+      root.appendChild(input);
+
+      translator.processAttribute(input, 'placeholder', ' enter name ');
+
+      expect(input.getAttribute('placeholder')).toBe(' ingrese nombre ');
+    });
+
+    it('should combine whitespace restoration with case normalization', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'hello', 'hola');
+
+      const p = document.createElement('p');
+      p.textContent = ' HELLO ';
+      root.appendChild(p);
+
+      translator.processText(p, ' HELLO ');
+
+      expect(p.textContent).toBe(' HOLA ');
+    });
+  });
+
   describe('error handling', () => {
     it('should handle node removed from DOM before translation arrives', () => {
       const { translator, store } = createDeps();
