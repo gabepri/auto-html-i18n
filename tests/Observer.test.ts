@@ -437,6 +437,62 @@ describe('Observer', () => {
     });
   });
 
+  describe('mutation processing resilience to inline DOM mutations', () => {
+    it('should process all sibling text nodes even when onTextFound mutates the DOM', async () => {
+      const { observer, onTextFound } = createObserver(root);
+
+      // Simulate what happens when a synchronous cache hit causes applyTranslation
+      // to mutate the DOM during TreeWalker traversal
+      onTextFound.mockImplementation((element: Element) => {
+        // This simulates Translator.applyTranslation setting textContent + data-i18n-original
+        element.textContent = 'translated';
+        element.setAttribute('data-i18n-original', element.textContent);
+      });
+
+      observer.start();
+
+      // Add a nav with 3 sibling items (like Vue 3 rendering a list)
+      const nav = document.createElement('nav');
+      nav.innerHTML = '<li><span>Privacy Policy</span></li><li><span>Terms of Service</span></li><li><span>Help &amp; FAQs</span></li>';
+      root.appendChild(nav);
+      await waitForMutations();
+
+      // All 3 text nodes should have been found, not just the first one
+      expect(onTextFound).toHaveBeenCalledTimes(3);
+      const texts = onTextFound.mock.calls.map((call: unknown[]) => call[1]);
+      expect(texts).toContain('Privacy Policy');
+      expect(texts).toContain('Terms of Service');
+      expect(texts).toContain('Help & FAQs');
+
+      observer.stop();
+    });
+
+    it('should process all elements in a mutation batch when early callbacks mutate DOM', async () => {
+      const { observer, onTextFound } = createObserver(root);
+      const found: string[] = [];
+
+      onTextFound.mockImplementation((_element: Element, text: string) => {
+        found.push(text);
+        // Mutate the element (simulates synchronous translation from cache)
+        _element.textContent = `[translated] ${text}`;
+        _element.setAttribute('data-i18n-original', text);
+      });
+
+      observer.start();
+
+      const container = document.createElement('div');
+      container.innerHTML = '<p>First</p><p>Second</p><p>Third</p>';
+      root.appendChild(container);
+      await waitForMutations();
+
+      expect(found).toContain('First');
+      expect(found).toContain('Second');
+      expect(found).toContain('Third');
+
+      observer.stop();
+    });
+  });
+
   describe('edge cases', () => {
     it('should handle nested ignored selectors', () => {
       root.innerHTML = '<code><span>should be ignored</span></code><p>Text</p>';

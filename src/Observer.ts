@@ -126,7 +126,12 @@ export class Observer {
   }
 
   private processSubtreeForMutation(element: Element): void {
-    this.processElement(element);
+    // Collect all items first, then fire callbacks.
+    // This prevents DOM mutations (from sync translations) from disrupting the TreeWalker.
+    const textItems: Array<{ element: Element; text: string }> = [];
+    const attrItems: Array<{ element: Element; attr: string; value: string }> = [];
+
+    this.collectElementAttrs(element, attrItems);
 
     const walker = document.createTreeWalker(
       element,
@@ -144,22 +149,19 @@ export class Observer {
     let node: Node | null = walker.nextNode();
     while (node) {
       if (node.nodeType === Node.ELEMENT_NODE) {
-        this.processElement(node as Element);
+        this.collectElementAttrs(node as Element, attrItems);
       } else if (node.nodeType === Node.TEXT_NODE) {
-        this.processTextNode(node as Text);
+        this.collectTextNode(node as Text, textItems);
       }
       node = walker.nextNode();
     }
-  }
 
-  private processElement(element: Element): void {
-    for (const attr of this.config.translatableAttributes) {
-      const originalAttrName = `${this.config.originalAttribute}-${attr}`;
-      if (element.hasAttribute(originalAttrName)) continue;
-      const value = element.getAttribute(attr);
-      if (value && value.trim()) {
-        this.config.onAttributeFound(element, attr, value);
-      }
+    // Now fire all callbacks (DOM mutations from sync translations won't disrupt the walk)
+    for (const item of attrItems) {
+      this.config.onAttributeFound(item.element, item.attr, item.value);
+    }
+    for (const item of textItems) {
+      this.config.onTextFound(item.element, item.text);
     }
   }
 
