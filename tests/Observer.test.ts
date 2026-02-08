@@ -172,6 +172,20 @@ describe('Observer', () => {
 
       observer.stop();
     });
+
+    it('should not aggregate when parent has mix of inline and non-inline children', () => {
+      root.innerHTML = '<button><div class="spinner"><svg><path d="M12 22"></path></svg></div><span class="label">Next</span></button>';
+      const { observer, onTextFound } = createObserver(root);
+      observer.start();
+
+      // Should report just "Next" from the span, not the entire button innerHTML with SVG
+      expect(onTextFound).toHaveBeenCalledTimes(1);
+      const [element, text] = onTextFound.mock.calls[0]!;
+      expect(element.tagName).toBe('SPAN');
+      expect(text).toBe('Next');
+
+      observer.stop();
+    });
   });
 
   describe('mutation observation', () => {

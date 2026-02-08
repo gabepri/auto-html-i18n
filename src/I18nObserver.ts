@@ -177,6 +177,25 @@ export class I18nObserver {
     this.translator.retranslateAll();
   }
 
+  getIgnoreWords(): string[] {
+    return this.masker.getIgnoreWords();
+  }
+
+  addIgnoreWords(...words: string[]): void {
+    this.masker.addIgnoreWords(...words);
+    this.translator.retranslateAll();
+  }
+
+  removeIgnoreWords(...words: string[]): void {
+    this.masker.removeIgnoreWords(...words);
+    this.translator.retranslateAll();
+  }
+
+  setIgnoreWords(words: string[]): void {
+    this.masker.setIgnoreWords(words);
+    this.translator.retranslateAll();
+  }
+
   getCache(locale?: string): Record<string, TranslationEntry> {
     return this.store.getCache(locale ?? this.currentLocale);
   }

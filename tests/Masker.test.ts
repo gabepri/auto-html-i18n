@@ -124,6 +124,62 @@ describe('Masker', () => {
       expect(result.masked).toBe('Progress: {{0}}%');
       expect(result.variables).toEqual(['85']);
     });
+
+    it('should mask the copyright symbol ©', () => {
+      const masker = createMasker();
+      const result = masker.mask('© 2024 Acme Inc');
+      expect(result.masked).toBe('{{0}} {{1}} Acme Inc');
+      expect(result.variables).toEqual(['©', '2024']);
+    });
+
+    it('should mask the registered trademark symbol ®', () => {
+      const masker = createMasker();
+      const result = masker.mask('Acme® is great');
+      expect(result.masked).toBe('Acme{{0}} is great');
+      expect(result.variables).toEqual(['®']);
+    });
+
+    it('should mask the trademark symbol ™', () => {
+      const masker = createMasker();
+      const result = masker.mask('Brand™ products');
+      expect(result.masked).toBe('Brand{{0}} products');
+      expect(result.variables).toEqual(['™']);
+    });
+
+    it('should mask currency symbols', () => {
+      const masker = createMasker();
+      const result = masker.mask('Price: €50');
+      expect(result.masked).toBe('Price: {{0}}{{1}}');
+      expect(result.variables).toEqual(['€', '50']);
+    });
+
+    it('should mask multiple different symbols', () => {
+      const masker = createMasker();
+      const result = masker.mask('© 2024 Brand™');
+      expect(result.masked).toBe('{{0}} {{1}} Brand{{2}}');
+      expect(result.variables).toEqual(['©', '2024', '™']);
+    });
+
+    it('should mask miscellaneous symbols like § ¶ •', () => {
+      const masker = createMasker();
+      const result = masker.mask('See § 5 for details');
+      expect(result.masked).toBe('See {{0}} {{1}} for details');
+      expect(result.variables).toEqual(['§', '5']);
+    });
+
+    it('should mask the degree symbol °', () => {
+      const masker = createMasker();
+      const result = masker.mask('It is 72°F outside');
+      expect(result.masked).toBe('It is {{0}}{{1}}F outside');
+      expect(result.variables).toEqual(['72', '°']);
+    });
+
+    it('should mask the plus-minus symbol ±', () => {
+      const masker = createMasker();
+      const result = masker.mask('Tolerance: ±5 mm');
+      expect(result.masked).toBe('Tolerance: {{0}}{{1}} mm');
+      expect(result.variables).toEqual(['±', '5']);
+    });
   });
 
   describe('mask() - inline tag normalization', () => {
@@ -351,6 +407,129 @@ describe('Masker', () => {
       const { masked, variables, tagAttributes } = masker.mask(original);
       const restored = masker.unmask(masked, variables, tagAttributes);
       expect(restored).toBe(original);
+    });
+  });
+
+  describe('runtime ignoreWords mutation', () => {
+    describe('getIgnoreWords()', () => {
+      it('should return the current ignore words', () => {
+        const masker = createMasker({ ignoreWords: ['Alice', 'Bob'] });
+        expect(masker.getIgnoreWords()).toEqual(expect.arrayContaining(['Alice', 'Bob']));
+        expect(masker.getIgnoreWords()).toHaveLength(2);
+      });
+
+      it('should return empty array when no ignore words', () => {
+        const masker = createMasker();
+        expect(masker.getIgnoreWords()).toEqual([]);
+      });
+
+      it('should return a defensive copy', () => {
+        const masker = createMasker({ ignoreWords: ['Alice'] });
+        const words = masker.getIgnoreWords();
+        words.push('Bob');
+        expect(masker.getIgnoreWords()).toEqual(['Alice']);
+      });
+
+      it('should return words sorted longest-first', () => {
+        const masker = createMasker({ ignoreWords: ['Al', 'Alice', 'A'] });
+        expect(masker.getIgnoreWords()).toEqual(['Alice', 'Al', 'A']);
+      });
+    });
+
+    describe('addIgnoreWords()', () => {
+      it('should add a word and affect masking', () => {
+        const masker = createMasker({ ignoreWords: [] });
+        expect(masker.mask('Hello Mary').masked).toBe('Hello Mary');
+
+        masker.addIgnoreWords('Mary');
+        expect(masker.mask('Hello Mary').masked).toBe('Hello {{0}}');
+        expect(masker.mask('Hello Mary').variables).toEqual(['Mary']);
+      });
+
+      it('should add multiple words at once', () => {
+        const masker = createMasker();
+        masker.addIgnoreWords('Alice', 'Bob');
+        expect(masker.getIgnoreWords()).toContain('Alice');
+        expect(masker.getIgnoreWords()).toContain('Bob');
+      });
+
+      it('should not add duplicate words', () => {
+        const masker = createMasker({ ignoreWords: ['Alice'] });
+        masker.addIgnoreWords('Alice');
+        expect(masker.getIgnoreWords()).toEqual(['Alice']);
+      });
+
+      it('should skip empty strings', () => {
+        const masker = createMasker();
+        masker.addIgnoreWords('', 'Alice', '');
+        expect(masker.getIgnoreWords()).toEqual(['Alice']);
+      });
+
+      it('should maintain longest-first sort after adding', () => {
+        const masker = createMasker({ ignoreWords: ['Al'] });
+        masker.addIgnoreWords('Alice');
+        expect(masker.getIgnoreWords()).toEqual(['Alice', 'Al']);
+      });
+
+      it('should prefer longer match after adding longer word', () => {
+        const masker = createMasker({ ignoreWords: ['John'] });
+        masker.addIgnoreWords('John Doe');
+
+        const result = masker.mask('Hello John Doe');
+        expect(result.masked).toBe('Hello {{0}}');
+        expect(result.variables).toEqual(['John Doe']);
+      });
+    });
+
+    describe('removeIgnoreWords()', () => {
+      it('should remove a word and stop masking it', () => {
+        const masker = createMasker({ ignoreWords: ['Mary'] });
+        expect(masker.mask('Hello Mary').masked).toBe('Hello {{0}}');
+
+        masker.removeIgnoreWords('Mary');
+        expect(masker.mask('Hello Mary').masked).toBe('Hello Mary');
+      });
+
+      it('should remove multiple words at once', () => {
+        const masker = createMasker({ ignoreWords: ['Alice', 'Bob'] });
+        masker.removeIgnoreWords('Alice', 'Bob');
+        expect(masker.getIgnoreWords()).toEqual([]);
+      });
+
+      it('should silently ignore words not in the list', () => {
+        const masker = createMasker({ ignoreWords: ['Alice'] });
+        masker.removeIgnoreWords('NotInList');
+        expect(masker.getIgnoreWords()).toEqual(['Alice']);
+      });
+
+      it('should preserve sort order after removal', () => {
+        const masker = createMasker({ ignoreWords: ['Alice', 'Al', 'A'] });
+        masker.removeIgnoreWords('Al');
+        expect(masker.getIgnoreWords()).toEqual(['Alice', 'A']);
+      });
+    });
+
+    describe('setIgnoreWords()', () => {
+      it('should replace the entire list', () => {
+        const masker = createMasker({ ignoreWords: ['Alice'] });
+        masker.setIgnoreWords(['Bob', 'Charlie']);
+        expect(masker.getIgnoreWords()).toEqual(['Charlie', 'Bob']);
+      });
+
+      it('should affect masking after replacement', () => {
+        const masker = createMasker({ ignoreWords: ['Alice'] });
+        masker.setIgnoreWords(['Bob']);
+
+        expect(masker.mask('Hello Alice').masked).toBe('Hello Alice');
+        expect(masker.mask('Hello Bob').masked).toBe('Hello {{0}}');
+      });
+
+      it('should handle setting to empty array', () => {
+        const masker = createMasker({ ignoreWords: ['Alice'] });
+        masker.setIgnoreWords([]);
+        expect(masker.getIgnoreWords()).toEqual([]);
+        expect(masker.mask('Hello Alice').masked).toBe('Hello Alice');
+      });
     });
   });
 });

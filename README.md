@@ -244,6 +244,38 @@ Replaces the entire global context and re-resolves all visible translations usin
 i18n.setContext({ gender: 'male', formality: 'formal' });
 ```
 
+### `getIgnoreWords()`
+
+Returns a copy of the current ignore words list.
+
+```javascript
+const words = i18n.getIgnoreWords(); // ['Google', 'John Doe']
+```
+
+### `addIgnoreWords(...words)`
+
+Adds one or more words to the ignore list and re-translates all observed nodes. Duplicates and empty strings are silently skipped.
+
+```javascript
+i18n.addIgnoreWords('Acme', 'Jane Doe');
+```
+
+### `removeIgnoreWords(...words)`
+
+Removes one or more words from the ignore list and re-translates all observed nodes. Words not in the list are silently ignored.
+
+```javascript
+i18n.removeIgnoreWords('Google');
+```
+
+### `setIgnoreWords(words)`
+
+Replaces the entire ignore words list and re-translates all observed nodes.
+
+```javascript
+i18n.setIgnoreWords(['NewBrand', 'Jane']);
+```
+
 ### `stop()`
 
 Disconnects the `MutationObserver` and clears any pending translation queues. Does not clear the cache. Call `start()` to resume observation.

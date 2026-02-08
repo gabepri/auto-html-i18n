@@ -231,6 +231,112 @@ describe('I18nObserver', () => {
     });
   });
 
+  describe('ignoreWords runtime API', () => {
+    describe('getIgnoreWords()', () => {
+      it('should return initial ignoreWords', () => {
+        const i18n = new I18nObserver(createConfig({
+          ignoreWords: ['Alice', 'Bob'],
+        }));
+        expect(i18n.getIgnoreWords()).toEqual(expect.arrayContaining(['Alice', 'Bob']));
+        expect(i18n.getIgnoreWords()).toHaveLength(2);
+      });
+
+      it('should return empty array when none configured', () => {
+        const i18n = new I18nObserver(createConfig());
+        expect(i18n.getIgnoreWords()).toEqual([]);
+      });
+    });
+
+    describe('addIgnoreWords()', () => {
+      it('should add words and retranslate DOM', () => {
+        root.innerHTML = '<p>Hello Mary</p>';
+        const i18n = new I18nObserver(createConfig({
+          initialCache: {
+            'Hello Mary': 'Hola Mary Literal',
+            'Hello {{0}}': 'Hola {{0}}',
+          },
+          rootElement: root,
+        }));
+
+        i18n.start();
+        // Without 'Mary' in ignoreWords, "Hello Mary" is the unmasked key
+        expect(root.querySelector('p')?.textContent).toBe('Hola Mary Literal');
+
+        i18n.addIgnoreWords('Mary');
+
+        // Now "Hello Mary" masks to "Hello {{0}}" which uses the masked translation
+        expect(root.querySelector('p')?.textContent).toBe('Hola Mary');
+
+        i18n.stop();
+      });
+
+      it('should reflect additions in getIgnoreWords()', () => {
+        const i18n = new I18nObserver(createConfig());
+        i18n.addIgnoreWords('Alice');
+        expect(i18n.getIgnoreWords()).toContain('Alice');
+      });
+    });
+
+    describe('removeIgnoreWords()', () => {
+      it('should remove words and retranslate DOM', () => {
+        root.innerHTML = '<p>Hello Mary</p>';
+        const i18n = new I18nObserver(createConfig({
+          ignoreWords: ['Mary'],
+          initialCache: {
+            'Hello {{0}}': 'Hola {{0}}',
+            'Hello Mary': 'Hola Mary Completa',
+          },
+          rootElement: root,
+        }));
+
+        i18n.start();
+        // With 'Mary' in ignoreWords, masks to "Hello {{0}}"
+        expect(root.querySelector('p')?.textContent).toBe('Hola Mary');
+
+        i18n.removeIgnoreWords('Mary');
+
+        // Now "Hello Mary" is the key — uses the full string translation
+        expect(root.querySelector('p')?.textContent).toBe('Hola Mary Completa');
+
+        i18n.stop();
+      });
+
+      it('should reflect removals in getIgnoreWords()', () => {
+        const i18n = new I18nObserver(createConfig({
+          ignoreWords: ['Alice', 'Bob'],
+        }));
+        i18n.removeIgnoreWords('Alice');
+        expect(i18n.getIgnoreWords()).not.toContain('Alice');
+        expect(i18n.getIgnoreWords()).toContain('Bob');
+      });
+    });
+
+    describe('setIgnoreWords()', () => {
+      it('should replace ignore words and retranslate DOM', () => {
+        root.innerHTML = '<p>Hello Alice</p>';
+        const i18n = new I18nObserver(createConfig({
+          ignoreWords: ['Bob'],
+          initialCache: {
+            'Hello Alice': 'Hola Alice Literal',
+            'Hello {{0}}': 'Hola {{0}}',
+          },
+          rootElement: root,
+        }));
+
+        i18n.start();
+        // 'Alice' is not in ignoreWords, so "Hello Alice" is the unmasked key
+        expect(root.querySelector('p')?.textContent).toBe('Hola Alice Literal');
+
+        i18n.setIgnoreWords(['Alice']);
+
+        // Now 'Alice' is masked, uses "Hello {{0}}" key
+        expect(root.querySelector('p')?.textContent).toBe('Hola Alice');
+
+        i18n.stop();
+      });
+    });
+  });
+
   describe('getCache() / clearCache()', () => {
     it('should return cache snapshot', () => {
       const i18n = new I18nObserver(createConfig({

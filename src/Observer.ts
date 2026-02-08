@@ -242,13 +242,17 @@ export class Observer {
   }
 
   private hasInlineChildElements(element: Element): boolean {
+    let hasInline = false;
     for (const child of element.children) {
       const tagName = child.tagName.toLowerCase();
       if (this.allowedInlineTagsSet.has(tagName)) {
-        return true;
+        hasInline = true;
+      } else {
+        // Has a non-inline child element — don't aggregate
+        return false;
       }
     }
-    return false;
+    return hasInline;
   }
 
   private isInsideIgnored(node: Node): boolean {

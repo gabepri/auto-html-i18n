@@ -163,6 +163,40 @@ export class Masker {
     return result;
   }
 
+  getIgnoreWords(): string[] {
+    return [...this.ignoreWords];
+  }
+
+  addIgnoreWords(...words: string[]): void {
+    const existing = new Set(this.ignoreWords);
+    let changed = false;
+    for (const word of words) {
+      if (word && !existing.has(word)) {
+        existing.add(word);
+        this.ignoreWords.push(word);
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.ignoreWords.sort((a, b) => b.length - a.length);
+      this.variableRegex = this.buildVariableRegex();
+    }
+  }
+
+  removeIgnoreWords(...words: string[]): void {
+    const toRemove = new Set(words);
+    const newList = this.ignoreWords.filter(w => !toRemove.has(w));
+    if (newList.length !== this.ignoreWords.length) {
+      this.ignoreWords = newList;
+      this.variableRegex = this.buildVariableRegex();
+    }
+  }
+
+  setIgnoreWords(words: string[]): void {
+    this.ignoreWords = [...words].sort((a, b) => b.length - a.length);
+    this.variableRegex = this.buildVariableRegex();
+  }
+
   private sanitizeTags(html: string): string {
     return html.replace(
       /<\/?(\w+)(\s[^>]*)?\s*>/g,
@@ -189,6 +223,9 @@ export class Masker {
 
     // 3. Numbers (including negative and decimals)
     parts.push('-?\\d+(?:\\.\\d+)?');
+
+    // 4. Standalone symbols (©, ®, ™, currency, etc.) — not translatable
+    parts.push('[©®™€£¥¢₹₽§¶†‡•°±¤]');
 
     if (parts.length === 0) {
       return /(?!)/; // Never matches
