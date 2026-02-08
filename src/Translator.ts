@@ -343,6 +343,6 @@ export class Translator {
 
 /** Returns true if the masked text contains letters to translate (not just placeholders, tags, whitespace, or punctuation). */
 function hasTranslatableContent(masked: string): boolean {
-  const stripped = masked.replace(/\{\{\d+\}\}/g, '').replace(/<\/?[a-z]+\d+>/g, '');
+  const stripped = masked.replace(/\{\{\d+\}\}/g, '').replace(/<[^>]*>/g, '');
   return /\p{L}/u.test(stripped);
 }

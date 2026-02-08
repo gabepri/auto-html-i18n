@@ -530,6 +530,35 @@ describe('Translator', () => {
 
       expect(enqueueSpy).not.toHaveBeenCalled();
     });
+
+    it('should skip text with non-allowed HTML tags containing only numbers', () => {
+      const { translator, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const div = document.createElement('div');
+      // Simulates phone number inside complex HTML (SVG icons, divs, etc.)
+      const html = '<span class="flex"><div class="bg-white"><svg role="img" width="48"></svg></div><a href="tel:+18881234567">+1 888-123-4567</a></span>';
+      div.innerHTML = html;
+      root.appendChild(div);
+
+      translator.processText(div, html);
+
+      expect(enqueueSpy).not.toHaveBeenCalled();
+    });
+
+    it('should still translate text with non-allowed HTML tags when translatable words exist', () => {
+      const { translator, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const div = document.createElement('div');
+      const html = '<div class="icon"><svg width="16"></svg></div> Contact us';
+      div.innerHTML = html;
+      root.appendChild(div);
+
+      translator.processText(div, html);
+
+      expect(enqueueSpy).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('case normalization', () => {
