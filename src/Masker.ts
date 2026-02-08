@@ -77,6 +77,19 @@ export class Masker {
     let masked = '';
     let i = 0;
     while (i < tagProcessed.length) {
+      // Mask HTML comments as variables
+      if (tagProcessed.startsWith('<!--', i)) {
+        const closeIdx = tagProcessed.indexOf('-->', i + 4);
+        if (closeIdx !== -1) {
+          const comment = tagProcessed.slice(i, closeIdx + 3);
+          const index = variables.length;
+          variables.push(comment);
+          masked += `{{${index}}}`;
+          i = closeIdx + 3;
+          continue;
+        }
+      }
+
       // Skip over tag contents (< ... >)
       if (tagProcessed[i] === '<') {
         const closeIdx = tagProcessed.indexOf('>', i);

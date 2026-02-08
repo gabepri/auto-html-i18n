@@ -240,6 +240,66 @@ describe('Masker', () => {
     });
   });
 
+  describe('mask() - HTML comments as variables', () => {
+    it('should mask a single HTML comment', () => {
+      const masker = createMasker();
+      const result = masker.mask('hello <!--v-if-->');
+      expect(result.masked).toBe('hello {{0}}');
+      expect(result.variables).toEqual(['<!--v-if-->']);
+    });
+
+    it('should mask multiple consecutive HTML comments', () => {
+      const masker = createMasker();
+      const result = masker.mask('text <!--v-if--><!--v-if--><!--v-if-->');
+      expect(result.masked).toBe('text {{0}}{{1}}{{2}}');
+      expect(result.variables).toEqual(['<!--v-if-->', '<!--v-if-->', '<!--v-if-->']);
+    });
+
+    it('should mask comments mixed with other text', () => {
+      const masker = createMasker();
+      const result = masker.mask('/ exam <!--v-if--><!--v-if--><!--v-if-->');
+      expect(result.masked).toBe('/ exam {{0}}{{1}}{{2}}');
+      expect(result.variables).toEqual(['<!--v-if-->', '<!--v-if-->', '<!--v-if-->']);
+    });
+
+    it('should mask comments alongside inline tags', () => {
+      const masker = createMasker();
+      const result = masker.mask('<span class="x">$15</span><span class="y">/ exam <!--v-if--></span>');
+      expect(result.masked).toBe('<span0>{{0}}{{1}}</span0><span1>/ exam {{2}}</span1>');
+      expect(result.variables).toEqual(['$', '15', '<!--v-if-->']);
+    });
+
+    it('should mask an empty HTML comment', () => {
+      const masker = createMasker();
+      const result = masker.mask('text <!---->');
+      expect(result.masked).toBe('text {{0}}');
+      expect(result.variables).toEqual(['<!---->']);
+    });
+
+    it('should mask comments with arbitrary content', () => {
+      const masker = createMasker();
+      const result = masker.mask('before <!-- some comment --> after');
+      expect(result.masked).toBe('before {{0}} after');
+      expect(result.variables).toEqual(['<!-- some comment -->']);
+    });
+
+    it('should roundtrip text with HTML comments', () => {
+      const masker = createMasker();
+      const original = '/ exam <!--v-if--><!--v-if-->';
+      const { masked, variables, tagAttributes } = masker.mask(original);
+      const restored = masker.unmask(masked, variables, tagAttributes);
+      expect(restored).toBe(original);
+    });
+
+    it('should roundtrip comments with inline tags', () => {
+      const masker = createMasker();
+      const original = '<span class="x">text</span> <!--v-if-->';
+      const { masked, variables, tagAttributes } = masker.mask(original);
+      const restored = masker.unmask(masked, variables, tagAttributes);
+      expect(restored).toBe(original);
+    });
+  });
+
   describe('mask() - inline tag normalization', () => {
     it('should normalize a single inline tag', () => {
       const masker = createMasker();
