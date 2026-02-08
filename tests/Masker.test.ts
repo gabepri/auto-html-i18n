@@ -121,8 +121,8 @@ describe('Masker', () => {
     it('should mask percentages', () => {
       const masker = createMasker();
       const result = masker.mask('Progress: 85%');
-      expect(result.masked).toBe('Progress: {{0}}%');
-      expect(result.variables).toEqual(['85']);
+      expect(result.masked).toBe('Progress: {{0}}{{1}}');
+      expect(result.variables).toEqual(['85', '%']);
     });
 
     it('should mask the copyright symbol ©', () => {
@@ -151,6 +151,20 @@ describe('Masker', () => {
       const result = masker.mask('Price: €50');
       expect(result.masked).toBe('Price: {{0}}{{1}}');
       expect(result.variables).toEqual(['€', '50']);
+    });
+
+    it('should mask dollar sign', () => {
+      const masker = createMasker();
+      const result = masker.mask('Price: $30');
+      expect(result.masked).toBe('Price: {{0}}{{1}}');
+      expect(result.variables).toEqual(['$', '30']);
+    });
+
+    it('should mask percent sign', () => {
+      const masker = createMasker();
+      const result = masker.mask('100%');
+      expect(result.masked).toBe('{{0}}{{1}}');
+      expect(result.variables).toEqual(['100', '%']);
     });
 
     it('should mask multiple different symbols', () => {

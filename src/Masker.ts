@@ -225,7 +225,7 @@ export class Masker {
     parts.push('-?\\d+(?:\\.\\d+)?');
 
     // 4. Standalone symbols (©, ®, ™, currency, etc.) — not translatable
-    parts.push('[©®™€£¥¢₹₽§¶†‡•°±¤]');
+    parts.push('[©®™$€£¥¢₹₽§¶†‡•°±¤%]');
 
     if (parts.length === 0) {
       return /(?!)/; // Never matches
