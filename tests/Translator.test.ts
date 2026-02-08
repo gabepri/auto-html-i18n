@@ -299,6 +299,143 @@ describe('Translator', () => {
     });
   });
 
+  describe('skipping untranslatable content', () => {
+    it('should skip text that masks to only variables', () => {
+      const { translator, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const p = document.createElement('p');
+      p.textContent = 'Mary';
+      root.appendChild(p);
+
+      translator.processText(p, 'Mary');
+
+      expect(enqueueSpy).not.toHaveBeenCalled();
+      expect(p.hasAttribute('data-i18n-pending')).toBe(false);
+      expect(p.textContent).toBe('Mary');
+    });
+
+    it('should skip text that masks to only a number', () => {
+      const { translator, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const p = document.createElement('p');
+      p.textContent = '42';
+      root.appendChild(p);
+
+      translator.processText(p, '42');
+
+      expect(enqueueSpy).not.toHaveBeenCalled();
+    });
+
+    it('should skip text that masks to multiple variables with whitespace', () => {
+      const { translator, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const p = document.createElement('p');
+      p.textContent = 'John Mary';
+      root.appendChild(p);
+
+      translator.processText(p, 'John Mary');
+
+      expect(enqueueSpy).not.toHaveBeenCalled();
+    });
+
+    it('should skip text that masks to variable with trailing space', () => {
+      const { translator, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const p = document.createElement('p');
+      p.textContent = 'John ';
+      root.appendChild(p);
+
+      translator.processText(p, 'John ');
+
+      expect(enqueueSpy).not.toHaveBeenCalled();
+    });
+
+    it('should still process text that has letters after masking', () => {
+      const { translator, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const p = document.createElement('p');
+      p.textContent = 'Hello Mary';
+      root.appendChild(p);
+
+      translator.processText(p, 'Hello Mary');
+
+      expect(enqueueSpy).toHaveBeenCalledTimes(1);
+      expect(enqueueSpy.mock.calls[0]![0].masked).toBe('Hello {{0}}');
+    });
+
+    it('should skip attribute that masks to only variables', () => {
+      const { translator, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const input = document.createElement('input');
+      input.setAttribute('placeholder', '123');
+      root.appendChild(input);
+
+      translator.processAttribute(input, 'placeholder', '123');
+
+      expect(enqueueSpy).not.toHaveBeenCalled();
+    });
+
+    it('should still translate when keyOverride is set even if no translatable content', () => {
+      const { translator, store, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const p = document.createElement('p');
+      p.setAttribute('data-i18n-key', 'player.name');
+      p.textContent = 'John';
+      root.appendChild(p);
+
+      translator.processText(p, 'John');
+
+      expect(enqueueSpy).toHaveBeenCalledTimes(1);
+      expect(enqueueSpy.mock.calls[0]![0].masked).toBe('player.name');
+    });
+
+    it('should skip symbols-only text', () => {
+      const { translator, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const p = document.createElement('p');
+      p.textContent = '© 2024';
+      root.appendChild(p);
+
+      translator.processText(p, '© 2024');
+
+      expect(enqueueSpy).not.toHaveBeenCalled();
+    });
+
+    it('should skip number with leading punctuation', () => {
+      const { translator, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const p = document.createElement('p');
+      p.textContent = '+0.00';
+      root.appendChild(p);
+
+      translator.processText(p, '+0.00');
+
+      expect(enqueueSpy).not.toHaveBeenCalled();
+    });
+
+    it('should skip date-only text', () => {
+      const { translator, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const p = document.createElement('p');
+      p.textContent = '01/15/2024';
+      root.appendChild(p);
+
+      translator.processText(p, '01/15/2024');
+
+      expect(enqueueSpy).not.toHaveBeenCalled();
+    });
+  });
+
   describe('error handling', () => {
     it('should handle node removed from DOM before translation arrives', () => {
       const { translator, store } = createDeps();

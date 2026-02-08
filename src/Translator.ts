@@ -49,6 +49,12 @@ export class Translator {
     const keyOverride = element.getAttribute(this.config.keyAttribute);
     const isHtml = /<[^>]+>/.test(originalText);
     const maskResult = this.masker.mask(originalText);
+
+    // Skip if masked text has no translatable content (only variables, tags, whitespace, punctuation)
+    if (!keyOverride && !hasTranslatableContent(maskResult.masked)) {
+      return;
+    }
+
     const cacheKey = keyOverride ?? maskResult.masked;
 
     const entry = this.store.get(this.config.locale, cacheKey);
@@ -75,6 +81,11 @@ export class Translator {
 
   processAttribute(element: Element, attr: string, originalValue: string): void {
     const maskResult = this.masker.mask(originalValue);
+
+    if (!hasTranslatableContent(maskResult.masked)) {
+      return;
+    }
+
     const cacheKey = maskResult.masked;
 
     const entry = this.store.get(this.config.locale, cacheKey);
@@ -146,6 +157,11 @@ export class Translator {
       const keyOverride = element.getAttribute(this.config.keyAttribute);
       const isHtml = /<[^>]+>/.test(originalText);
       const maskResult = this.masker.mask(originalText);
+
+      if (!keyOverride && !hasTranslatableContent(maskResult.masked)) {
+        continue;
+      }
+
       const cacheKey = keyOverride ?? maskResult.masked;
 
       const entry = this.store.get(this.config.locale, cacheKey);
@@ -253,4 +269,10 @@ export class Translator {
 
     return { elementOpenTag, childElements, source };
   }
+}
+
+/** Returns true if the masked text contains letters to translate (not just placeholders, tags, whitespace, or punctuation). */
+function hasTranslatableContent(masked: string): boolean {
+  const stripped = masked.replace(/\{\{\d+\}\}/g, '').replace(/<\/?[a-z]+\d+>/g, '');
+  return /\p{L}/u.test(stripped);
 }
