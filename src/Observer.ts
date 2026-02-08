@@ -252,7 +252,20 @@ export class Observer {
         return false;
       }
     }
+    // Single inline child with no sibling text is just a wrapper — skip aggregation
+    if (hasInline && element.children.length === 1 && !this.hasDirectTextContent(element)) {
+      return false;
+    }
     return hasInline;
+  }
+
+  private hasDirectTextContent(element: Element): boolean {
+    for (const child of element.childNodes) {
+      if (child.nodeType === Node.TEXT_NODE && child.textContent?.trim()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private isInsideIgnored(node: Node): boolean {

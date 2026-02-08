@@ -392,13 +392,67 @@ describe('Observer', () => {
       observer.stop();
     });
 
-    it('should handle element with only inline children (no direct text)', () => {
+    it('should not aggregate when single inline child wraps all content', () => {
       root.innerHTML = '<p><b>Bold only</b></p>';
       const { observer, onTextFound } = createObserver(root);
       observer.start();
 
       expect(onTextFound).toHaveBeenCalledTimes(1);
-      expect(onTextFound.mock.calls[0]![1]).toBe('<b>Bold only</b>');
+      const [element, text] = onTextFound.mock.calls[0]!;
+      expect(element.tagName).toBe('B');
+      expect(text).toBe('Bold only');
+
+      observer.stop();
+    });
+
+    it('should not aggregate single wrapper with attributes', () => {
+      root.innerHTML = '<div><a href="/login" class="link">Click</a></div>';
+      const { observer, onTextFound } = createObserver(root);
+      observer.start();
+
+      expect(onTextFound).toHaveBeenCalledTimes(1);
+      const [element, text] = onTextFound.mock.calls[0]!;
+      expect(element.tagName).toBe('A');
+      expect(text).toBe('Click');
+
+      observer.stop();
+    });
+
+    it('should not aggregate nested single wrappers', () => {
+      root.innerHTML = '<div><a><b>Bold link</b></a></div>';
+      const { observer, onTextFound } = createObserver(root);
+      observer.start();
+
+      expect(onTextFound).toHaveBeenCalledTimes(1);
+      const [element, text] = onTextFound.mock.calls[0]!;
+      expect(element.tagName).toBe('B');
+      expect(text).toBe('Bold link');
+
+      observer.stop();
+    });
+
+    it('should still aggregate multiple inline children without direct text', () => {
+      root.innerHTML = '<p><b>Hello</b><i>World</i></p>';
+      const { observer, onTextFound } = createObserver(root);
+      observer.start();
+
+      expect(onTextFound).toHaveBeenCalledTimes(1);
+      const [element, text] = onTextFound.mock.calls[0]!;
+      expect(element.tagName).toBe('P');
+      expect(text).toBe('<b>Hello</b><i>World</i>');
+
+      observer.stop();
+    });
+
+    it('should still aggregate single inline child with sibling text', () => {
+      root.innerHTML = '<p>text <a href="/link">link</a></p>';
+      const { observer, onTextFound } = createObserver(root);
+      observer.start();
+
+      expect(onTextFound).toHaveBeenCalledTimes(1);
+      const [element, text] = onTextFound.mock.calls[0]!;
+      expect(element.tagName).toBe('P');
+      expect(text).toBe('text <a href="/link">link</a>');
 
       observer.stop();
     });
