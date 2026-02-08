@@ -24,7 +24,8 @@
       "Bash(gh issue list:*)",
       "Bash(gh issue view:*)",
       "Bash(node -e:*)",
-      "Bash(npx tsc --noEmit:*)"
+      "Bash(npx tsc --noEmit:*)",
+      "Bash(npm test:*)"
     ]
   }
 }

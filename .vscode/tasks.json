@@ -1,0 +1,49 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "CI Check",
+      "type": "shell",
+      "command": "npm run lint && npm run typecheck && npm run test && npm run build",
+      "group": "test",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Patch Release",
+      "type": "shell",
+      "command": "npm version patch && git push && git push --tags && gh release create v$(node -p \"require('./package.json').version\") --generate-notes",
+      "group": "none",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Minor Release",
+      "type": "shell",
+      "command": "npm version minor && git push && git push --tags && gh release create v$(node -p \"require('./package.json').version\") --generate-notes",
+      "group": "none",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Major Release",
+      "type": "shell",
+      "command": "npm version major && git push && git push --tags && gh release create v$(node -p \"require('./package.json').version\") --generate-notes",
+      "group": "none",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    }
+  ]
+}
