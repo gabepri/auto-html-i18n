@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Masker } from '../src/Masker';
-import type { MaskerConfig } from '../src/types';
+import type { MaskerConfig, VariableInfo } from '../src/types';
 
 const defaultConfig: MaskerConfig = {
   ignoreWords: [],
@@ -11,55 +11,62 @@ function createMasker(overrides: Partial<MaskerConfig> = {}): Masker {
   return new Masker({ ...defaultConfig, ...overrides });
 }
 
+/** Helper to build a VariableInfo for concise assertions */
+function v(value: string, type: VariableInfo['type'], meta?: Record<string, string>): VariableInfo {
+  const info: VariableInfo = { value, type };
+  if (meta) info.meta = meta;
+  return info;
+}
+
 describe('Masker', () => {
   describe('mask() - variable masking', () => {
     it('should mask standalone numbers', () => {
       const masker = createMasker();
       const result = masker.mask('You have 5 apples');
       expect(result.masked).toBe('You have {{0}} apples');
-      expect(result.variables).toEqual(['5']);
+      expect(result.variables).toEqual([v('5', 'number')]);
     });
 
     it('should mask multiple numbers in order', () => {
       const masker = createMasker();
       const result = masker.mask('Page 3 of 10');
       expect(result.masked).toBe('Page {{0}} of {{1}}');
-      expect(result.variables).toEqual(['3', '10']);
+      expect(result.variables).toEqual([v('3', 'number'), v('10', 'number')]);
     });
 
     it('should mask decimal numbers', () => {
       const masker = createMasker();
       const result = masker.mask('Total: 19.99');
       expect(result.masked).toBe('Total: {{0}}');
-      expect(result.variables).toEqual(['19.99']);
+      expect(result.variables).toEqual([v('19.99', 'number')]);
     });
 
     it('should mask date-like patterns (MM/DD/YYYY)', () => {
       const masker = createMasker();
       const result = masker.mask('Born on 01/15/2024');
       expect(result.masked).toBe('Born on {{0}}');
-      expect(result.variables).toEqual(['01/15/2024']);
+      expect(result.variables).toEqual([v('01/15/2024', 'date')]);
     });
 
     it('should mask date-like patterns with dashes', () => {
       const masker = createMasker();
       const result = masker.mask('Date: 2024-01-15');
       expect(result.masked).toBe('Date: {{0}}');
-      expect(result.variables).toEqual(['2024-01-15']);
+      expect(result.variables).toEqual([v('2024-01-15', 'date')]);
     });
 
     it('should mask date-like patterns with dots', () => {
       const masker = createMasker();
       const result = masker.mask('Date: 15.01.2024');
       expect(result.masked).toBe('Date: {{0}}');
-      expect(result.variables).toEqual(['15.01.2024']);
+      expect(result.variables).toEqual([v('15.01.2024', 'date')]);
     });
 
     it('should mask ignoreWords (case-sensitive)', () => {
       const masker = createMasker({ ignoreWords: ['Mary'] });
       const result = masker.mask('Hello Mary');
       expect(result.masked).toBe('Hello {{0}}');
-      expect(result.variables).toEqual(['Mary']);
+      expect(result.variables).toEqual([v('Mary', 'ignoreWord')]);
     });
 
     it('should not mask ignoreWords with different case', () => {
@@ -73,21 +80,21 @@ describe('Masker', () => {
       const masker = createMasker({ ignoreWords: ['John'] });
       const result = masker.mask('John has 3 cats');
       expect(result.masked).toBe('{{0}} has {{1}} cats');
-      expect(result.variables).toEqual(['John', '3']);
+      expect(result.variables).toEqual([v('John', 'ignoreWord'), v('3', 'number')]);
     });
 
     it('should handle multi-word ignoreWords', () => {
       const masker = createMasker({ ignoreWords: ['John Doe'] });
       const result = masker.mask('Hello John Doe');
       expect(result.masked).toBe('Hello {{0}}');
-      expect(result.variables).toEqual(['John Doe']);
+      expect(result.variables).toEqual([v('John Doe', 'ignoreWord')]);
     });
 
     it('should prefer longer ignoreWords over shorter ones', () => {
       const masker = createMasker({ ignoreWords: ['John', 'John Doe'] });
       const result = masker.mask('Hello John Doe');
       expect(result.masked).toBe('Hello {{0}}');
-      expect(result.variables).toEqual(['John Doe']);
+      expect(result.variables).toEqual([v('John Doe', 'ignoreWord')]);
     });
 
     it('should return original text unchanged if nothing to mask', () => {
@@ -108,91 +115,91 @@ describe('Masker', () => {
       const masker = createMasker();
       const result = masker.mask('42');
       expect(result.masked).toBe('{{0}}');
-      expect(result.variables).toEqual(['42']);
+      expect(result.variables).toEqual([v('42', 'number')]);
     });
 
     it('should mask negative numbers', () => {
       const masker = createMasker();
       const result = masker.mask('Temperature is -5 degrees');
       expect(result.masked).toBe('Temperature is {{0}} degrees');
-      expect(result.variables).toEqual(['-5']);
+      expect(result.variables).toEqual([v('-5', 'number')]);
     });
 
     it('should mask percentages', () => {
       const masker = createMasker();
       const result = masker.mask('Progress: 85%');
       expect(result.masked).toBe('Progress: {{0}}{{1}}');
-      expect(result.variables).toEqual(['85', '%']);
+      expect(result.variables).toEqual([v('85', 'number'), v('%', 'symbol')]);
     });
 
     it('should mask the copyright symbol ©', () => {
       const masker = createMasker();
       const result = masker.mask('© 2024 Acme Inc');
       expect(result.masked).toBe('{{0}} {{1}} Acme Inc');
-      expect(result.variables).toEqual(['©', '2024']);
+      expect(result.variables).toEqual([v('©', 'symbol'), v('2024', 'number')]);
     });
 
     it('should mask the registered trademark symbol ®', () => {
       const masker = createMasker();
       const result = masker.mask('Acme® is great');
       expect(result.masked).toBe('Acme{{0}} is great');
-      expect(result.variables).toEqual(['®']);
+      expect(result.variables).toEqual([v('®', 'symbol')]);
     });
 
     it('should mask the trademark symbol ™', () => {
       const masker = createMasker();
       const result = masker.mask('Brand™ products');
       expect(result.masked).toBe('Brand{{0}} products');
-      expect(result.variables).toEqual(['™']);
+      expect(result.variables).toEqual([v('™', 'symbol')]);
     });
 
     it('should mask currency symbols', () => {
       const masker = createMasker();
       const result = masker.mask('Price: €50');
       expect(result.masked).toBe('Price: {{0}}{{1}}');
-      expect(result.variables).toEqual(['€', '50']);
+      expect(result.variables).toEqual([v('€', 'symbol'), v('50', 'number')]);
     });
 
     it('should mask dollar sign', () => {
       const masker = createMasker();
       const result = masker.mask('Price: $30');
       expect(result.masked).toBe('Price: {{0}}{{1}}');
-      expect(result.variables).toEqual(['$', '30']);
+      expect(result.variables).toEqual([v('$', 'symbol'), v('30', 'number')]);
     });
 
     it('should mask percent sign', () => {
       const masker = createMasker();
       const result = masker.mask('100%');
       expect(result.masked).toBe('{{0}}{{1}}');
-      expect(result.variables).toEqual(['100', '%']);
+      expect(result.variables).toEqual([v('100', 'number'), v('%', 'symbol')]);
     });
 
     it('should mask multiple different symbols', () => {
       const masker = createMasker();
       const result = masker.mask('© 2024 Brand™');
       expect(result.masked).toBe('{{0}} {{1}} Brand{{2}}');
-      expect(result.variables).toEqual(['©', '2024', '™']);
+      expect(result.variables).toEqual([v('©', 'symbol'), v('2024', 'number'), v('™', 'symbol')]);
     });
 
     it('should mask miscellaneous symbols like § ¶ •', () => {
       const masker = createMasker();
       const result = masker.mask('See § 5 for details');
       expect(result.masked).toBe('See {{0}} {{1}} for details');
-      expect(result.variables).toEqual(['§', '5']);
+      expect(result.variables).toEqual([v('§', 'symbol'), v('5', 'number')]);
     });
 
     it('should mask the degree symbol °', () => {
       const masker = createMasker();
       const result = masker.mask('It is 72°F outside');
       expect(result.masked).toBe('It is {{0}}{{1}}F outside');
-      expect(result.variables).toEqual(['72', '°']);
+      expect(result.variables).toEqual([v('72', 'number'), v('°', 'symbol')]);
     });
 
     it('should mask the plus-minus symbol ±', () => {
       const masker = createMasker();
       const result = masker.mask('Tolerance: ±5 mm');
       expect(result.masked).toBe('Tolerance: {{0}}{{1}} mm');
-      expect(result.variables).toEqual(['±', '5']);
+      expect(result.variables).toEqual([v('±', 'symbol'), v('5', 'number')]);
     });
   });
 
@@ -201,42 +208,42 @@ describe('Masker', () => {
       const masker = createMasker();
       const result = masker.mask('Visit https://example.com for more');
       expect(result.masked).toBe('Visit {{0}} for more');
-      expect(result.variables).toEqual(['https://example.com']);
+      expect(result.variables).toEqual([v('https://example.com', 'url')]);
     });
 
     it('should mask an http URL', () => {
       const masker = createMasker();
       const result = masker.mask('Go to http://example.com/page');
       expect(result.masked).toBe('Go to {{0}}');
-      expect(result.variables).toEqual(['http://example.com/page']);
+      expect(result.variables).toEqual([v('http://example.com/page', 'url')]);
     });
 
     it('should mask a URL with path, query, and fragment', () => {
       const masker = createMasker();
       const result = masker.mask('See https://example.com/path?q=1&b=2#section for details');
       expect(result.masked).toBe('See {{0}} for details');
-      expect(result.variables).toEqual(['https://example.com/path?q=1&b=2#section']);
+      expect(result.variables).toEqual([v('https://example.com/path?q=1&b=2#section', 'url')]);
     });
 
     it('should mask an email address', () => {
       const masker = createMasker();
       const result = masker.mask('Contact us at support@example.com today');
       expect(result.masked).toBe('Contact us at {{0}} today');
-      expect(result.variables).toEqual(['support@example.com']);
+      expect(result.variables).toEqual([v('support@example.com', 'email')]);
     });
 
     it('should mask email with plus and dots', () => {
       const masker = createMasker();
       const result = masker.mask('Email user.name+tag@sub.example.co.uk');
       expect(result.masked).toBe('Email {{0}}');
-      expect(result.variables).toEqual(['user.name+tag@sub.example.co.uk']);
+      expect(result.variables).toEqual([v('user.name+tag@sub.example.co.uk', 'email')]);
     });
 
     it('should mask both URL and email in the same text', () => {
       const masker = createMasker();
       const result = masker.mask('Visit https://example.com or email info@example.com');
       expect(result.masked).toBe('Visit {{0}} or email {{1}}');
-      expect(result.variables).toEqual(['https://example.com', 'info@example.com']);
+      expect(result.variables).toEqual([v('https://example.com', 'url'), v('info@example.com', 'email')]);
     });
   });
 
@@ -245,42 +252,42 @@ describe('Masker', () => {
       const masker = createMasker();
       const result = masker.mask('hello <!--v-if-->');
       expect(result.masked).toBe('hello {{0}}');
-      expect(result.variables).toEqual(['<!--v-if-->']);
+      expect(result.variables).toEqual([v('<!--v-if-->', 'comment')]);
     });
 
     it('should mask multiple consecutive HTML comments', () => {
       const masker = createMasker();
       const result = masker.mask('text <!--v-if--><!--v-if--><!--v-if-->');
       expect(result.masked).toBe('text {{0}}{{1}}{{2}}');
-      expect(result.variables).toEqual(['<!--v-if-->', '<!--v-if-->', '<!--v-if-->']);
+      expect(result.variables).toEqual([v('<!--v-if-->', 'comment'), v('<!--v-if-->', 'comment'), v('<!--v-if-->', 'comment')]);
     });
 
     it('should mask comments mixed with other text', () => {
       const masker = createMasker();
       const result = masker.mask('/ exam <!--v-if--><!--v-if--><!--v-if-->');
       expect(result.masked).toBe('/ exam {{0}}{{1}}{{2}}');
-      expect(result.variables).toEqual(['<!--v-if-->', '<!--v-if-->', '<!--v-if-->']);
+      expect(result.variables).toEqual([v('<!--v-if-->', 'comment'), v('<!--v-if-->', 'comment'), v('<!--v-if-->', 'comment')]);
     });
 
     it('should mask comments alongside inline tags', () => {
       const masker = createMasker();
       const result = masker.mask('<span class="x">$15</span><span class="y">/ exam <!--v-if--></span>');
       expect(result.masked).toBe('<span0>{{0}}{{1}}</span0><span1>/ exam {{2}}</span1>');
-      expect(result.variables).toEqual(['$', '15', '<!--v-if-->']);
+      expect(result.variables).toEqual([v('$', 'symbol'), v('15', 'number'), v('<!--v-if-->', 'comment')]);
     });
 
     it('should mask an empty HTML comment', () => {
       const masker = createMasker();
       const result = masker.mask('text <!---->');
       expect(result.masked).toBe('text {{0}}');
-      expect(result.variables).toEqual(['<!---->']);
+      expect(result.variables).toEqual([v('<!---->', 'comment')]);
     });
 
     it('should mask comments with arbitrary content', () => {
       const masker = createMasker();
       const result = masker.mask('before <!-- some comment --> after');
       expect(result.masked).toBe('before {{0}} after');
-      expect(result.variables).toEqual(['<!-- some comment -->']);
+      expect(result.variables).toEqual([v('<!-- some comment -->', 'comment')]);
     });
 
     it('should roundtrip text with HTML comments', () => {
@@ -360,7 +367,7 @@ describe('Masker', () => {
       const masker = createMasker({ ignoreWords: ['Mary'] });
       const result = masker.mask('Welcome <b>Mary</b>, you have 5 items');
       expect(result.masked).toBe('Welcome <b0>{{0}}</b0>, you have {{1}} items');
-      expect(result.variables).toEqual(['Mary', '5']);
+      expect(result.variables).toEqual([v('Mary', 'ignoreWord'), v('5', 'number')]);
       expect(result.tagAttributes.get('b0')).toEqual({});
     });
 
@@ -368,21 +375,82 @@ describe('Masker', () => {
       const masker = createMasker({ ignoreWords: ['Google'] });
       const result = masker.mask('Visit <a href="https://google.com">Google</a> for more');
       expect(result.masked).toBe('Visit <a0>{{0}}</a0> for more');
-      expect(result.variables).toEqual(['Google']);
+      expect(result.variables).toEqual([v('Google', 'ignoreWord')]);
       expect(result.tagAttributes.get('a0')).toEqual({ href: 'https://google.com' });
+    });
+  });
+
+  describe('mask() - ignoreWords with metadata', () => {
+    it('should accept string entries in ignoreWords (backward compat)', () => {
+      const masker = createMasker({ ignoreWords: ['Mary'] });
+      const result = masker.mask('Hello Mary');
+      expect(result.variables).toEqual([v('Mary', 'ignoreWord')]);
+    });
+
+    it('should accept object entries with meta', () => {
+      const masker = createMasker({
+        ignoreWords: [{ word: 'Mary', meta: { gender: 'female' } }],
+      });
+      const result = masker.mask('Hello Mary');
+      expect(result.variables).toEqual([
+        v('Mary', 'ignoreWord', { gender: 'female' }),
+      ]);
+    });
+
+    it('should mix string and object entries', () => {
+      const masker = createMasker({
+        ignoreWords: [
+          'Google',
+          { word: 'Mary', meta: { gender: 'female' } },
+        ],
+      });
+      const result = masker.mask('Mary uses Google');
+      expect(result.variables).toEqual([
+        v('Mary', 'ignoreWord', { gender: 'female' }),
+        v('Google', 'ignoreWord'),
+      ]);
+    });
+
+    it('should sort object entries longest-first by word', () => {
+      const masker = createMasker({
+        ignoreWords: [
+          { word: 'Al', meta: { gender: 'male' } },
+          { word: 'Alice', meta: { gender: 'female' } },
+        ],
+      });
+      const result = masker.mask('Hello Alice');
+      expect(result.variables).toEqual([
+        v('Alice', 'ignoreWord', { gender: 'female' }),
+      ]);
+    });
+
+    it('should include metadata from object entries in getIgnoreWords result words', () => {
+      const masker = createMasker({
+        ignoreWords: [{ word: 'Mary', meta: { gender: 'female' } }, 'Google'],
+      });
+      // getIgnoreWords returns just the word strings
+      expect(masker.getIgnoreWords()).toEqual(expect.arrayContaining(['Mary', 'Google']));
+      expect(masker.getIgnoreWords()).toHaveLength(2);
+    });
+
+    it('should handle setIgnoreWords with object entries', () => {
+      const masker = createMasker();
+      masker.setIgnoreWords([{ word: 'Mary', meta: { gender: 'female' } }]);
+      const result = masker.mask('Hello Mary');
+      expect(result.variables).toEqual([v('Mary', 'ignoreWord', { gender: 'female' })]);
     });
   });
 
   describe('unmask()', () => {
     it('should restore variables into placeholders', () => {
       const masker = createMasker();
-      const result = masker.unmask('Hola {{0}}', ['Mary'], new Map());
+      const result = masker.unmask('Hola {{0}}', [v('Mary', 'ignoreWord')], new Map());
       expect(result).toBe('Hola Mary');
     });
 
     it('should restore multiple variables', () => {
       const masker = createMasker();
-      const result = masker.unmask('{{0}} tiene {{1}} gatos', ['John', '3'], new Map());
+      const result = masker.unmask('{{0}} tiene {{1}} gatos', [v('John', 'ignoreWord'), v('3', 'number')], new Map());
       expect(result).toBe('John tiene 3 gatos');
     });
 
@@ -412,7 +480,7 @@ describe('Masker', () => {
     it('should restore both variables and tag attributes', () => {
       const masker = createMasker();
       const attrs = new Map([['b0', {}]]);
-      const result = masker.unmask('Bienvenida <b0>{{0}}</b0>', ['Mary'], attrs);
+      const result = masker.unmask('Bienvenida <b0>{{0}}</b0>', [v('Mary', 'ignoreWord')], attrs);
       expect(result).toBe('Bienvenida <b>Mary</b>');
     });
 
@@ -438,7 +506,7 @@ describe('Masker', () => {
 
     it('should handle missing variables gracefully', () => {
       const masker = createMasker();
-      const result = masker.unmask('Hello {{0}} {{1}}', ['World'], new Map());
+      const result = masker.unmask('Hello {{0}} {{1}}', [v('World', 'ignoreWord')], new Map());
       expect(result).toBe('Hello World {{1}}');
     });
 
@@ -497,6 +565,94 @@ describe('Masker', () => {
       const result = masker.unmask('<form action="/steal"><input type="text"></form>', [], new Map());
       expect(result).toContain('&lt;form');
       expect(result).toContain('&lt;input');
+    });
+  });
+
+  describe('unmask() - ICU MessageFormat', () => {
+    it('should detect and evaluate ICU plural', () => {
+      const masker = createMasker();
+      const result = masker.unmask(
+        '{0, plural, one {# item} other {# items}}',
+        [v('5', 'number')],
+        new Map(),
+        'en'
+      );
+      expect(result).toBe('5 items');
+    });
+
+    it('should evaluate ICU plural with singular', () => {
+      const masker = createMasker();
+      const result = masker.unmask(
+        '{0, plural, one {# item} other {# items}}',
+        [v('1', 'number')],
+        new Map(),
+        'en'
+      );
+      expect(result).toBe('1 item');
+    });
+
+    it('should evaluate ICU with mixed variables (name + count)', () => {
+      const masker = createMasker();
+      const result = masker.unmask(
+        '{0} bought {1, plural, one {# sheep} other {# sheep}}',
+        [v('Mary', 'ignoreWord'), v('5', 'number')],
+        new Map(),
+        'en'
+      );
+      expect(result).toBe('Mary bought 5 sheep');
+    });
+
+    it('should evaluate ICU select with ignoreWord metadata', () => {
+      const masker = createMasker();
+      const result = masker.unmask(
+        '{0_gender, select, female {{0} a acheté} other {{0} a acheté}} {1, plural, one {# mouton} other {# moutons}}',
+        [v('Mary', 'ignoreWord', { gender: 'female' }), v('5', 'number')],
+        new Map(),
+        'fr'
+      );
+      expect(result).toBe('Mary a acheté 5 moutons');
+    });
+
+    it('should fall back to simple substitution for {{N}} format', () => {
+      const masker = createMasker();
+      const result = masker.unmask('Hola {{0}}', [v('Mary', 'ignoreWord')], new Map());
+      expect(result).toBe('Hola Mary');
+    });
+
+    it('should apply tag attribute restoration after ICU evaluation', () => {
+      const masker = createMasker();
+      const attrs = new Map([['a0', { href: '/items' }]]);
+      const result = masker.unmask(
+        '<a0>{0, plural, one {# item} other {# items}}</a0>',
+        [v('3', 'number')],
+        attrs,
+        'en'
+      );
+      expect(result).toBe('<a href="/items">3 items</a>');
+    });
+
+    it('should sanitize disallowed tags after ICU evaluation', () => {
+      const masker = createMasker();
+      const result = masker.unmask(
+        '{0, plural, one {# item} other {# items}} <script>evil</script>',
+        [v('2', 'number')],
+        new Map(),
+        'en'
+      );
+      expect(result).toContain('2 items');
+      expect(result).toContain('&lt;script&gt;');
+    });
+
+    it('should handle ICU format error gracefully', () => {
+      const masker = createMasker();
+      // Malformed ICU — should not throw, falls back to raw pattern
+      const result = masker.unmask(
+        '{0, plural, {broken}',
+        [v('5', 'number')],
+        new Map(),
+        'en'
+      );
+      expect(result).toBe('{0, plural, {broken}');
     });
   });
 
@@ -763,7 +919,7 @@ describe('Masker', () => {
 
         masker.addIgnoreWords('Mary');
         expect(masker.mask('Hello Mary').masked).toBe('Hello {{0}}');
-        expect(masker.mask('Hello Mary').variables).toEqual(['Mary']);
+        expect(masker.mask('Hello Mary').variables).toEqual([v('Mary', 'ignoreWord')]);
       });
 
       it('should add multiple words at once', () => {
@@ -797,7 +953,7 @@ describe('Masker', () => {
 
         const result = masker.mask('Hello John Doe');
         expect(result.masked).toBe('Hello {{0}}');
-        expect(result.variables).toEqual(['John Doe']);
+        expect(result.variables).toEqual([v('John Doe', 'ignoreWord')]);
       });
     });
 

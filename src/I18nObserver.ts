@@ -1,15 +1,11 @@
-import type { I18nConfig, TranslationEntry, TranslationItem } from './types';
+import type { I18nConfig, IgnoreWordEntry, TranslationEntry, TranslationItem } from './types';
 import { Store } from './Store';
 import { Queue } from './Queue';
 import { Masker } from './Masker';
-import { Resolver } from './Resolver';
 import { Observer } from './Observer';
 import { Translator } from './Translator';
 
 const DEFAULTS = {
-  context: {} as Record<string, string>,
-  fallbackContext: { gender: 'neutral', formality: 'neutral' },
-  contextOrder: ['gender', 'formality'],
   allowedInlineTags: ['a', 'b', 'i', 'u', 'strong', 'em', 'span', 'small', 'mark', 'del'],
   translatableAttributes: ['title', 'placeholder', 'alt', 'aria-label'],
   ignoreSelectors: ['script', 'style', 'code'],
@@ -28,7 +24,6 @@ export class I18nObserver {
   private store: Store;
   private queue: Queue;
   private masker: Masker;
-  private resolver: Resolver;
   private observer: Observer;
   private translator: Translator;
   private currentLocale: string;
@@ -36,9 +31,6 @@ export class I18nObserver {
 
   constructor(userConfig: I18nConfig) {
     const config: Required<I18nConfig> = {
-      context: userConfig.context ?? DEFAULTS.context,
-      fallbackContext: userConfig.fallbackContext ?? DEFAULTS.fallbackContext,
-      contextOrder: userConfig.contextOrder ?? DEFAULTS.contextOrder,
       allowedInlineTags: userConfig.allowedInlineTags ?? DEFAULTS.allowedInlineTags,
       translatableAttributes: userConfig.translatableAttributes ?? DEFAULTS.translatableAttributes,
       ignoreSelectors: userConfig.ignoreSelectors ?? DEFAULTS.ignoreSelectors,
@@ -64,18 +56,12 @@ export class I18nObserver {
       ignoreWords: config.ignoreWords,
       allowedInlineTags: config.allowedInlineTags,
     });
-    this.resolver = new Resolver({
-      context: config.context,
-      fallbackContext: config.fallbackContext,
-      contextOrder: config.contextOrder,
-    });
 
     this.translator = new Translator(
       this.store,
       // Queue placeholder — will be replaced below
       null as unknown as Queue,
       this.masker,
-      this.resolver,
       {
         locale: config.locale,
         originalAttribute: config.originalAttribute,
@@ -99,7 +85,6 @@ export class I18nObserver {
       this.store,
       this.queue,
       this.masker,
-      this.resolver,
       {
         locale: config.locale,
         originalAttribute: config.originalAttribute,
@@ -158,8 +143,7 @@ export class I18nObserver {
 
     let translated: string;
     if (entry && entry.status === 'resolved' && entry.value !== null) {
-      const resolved = this.resolver.resolve(entry.value);
-      translated = resolved ?? text;
+      translated = entry.value;
     } else {
       translated = text;
     }
@@ -181,11 +165,6 @@ export class I18nObserver {
     this.translator.retranslateAll();
   }
 
-  setContext(context: Record<string, string>): void {
-    this.resolver.updateContext(context);
-    this.translator.retranslateAll();
-  }
-
   getIgnoreWords(): string[] {
     return this.masker.getIgnoreWords();
   }
@@ -200,7 +179,7 @@ export class I18nObserver {
     this.translator.retranslateAll();
   }
 
-  setIgnoreWords(words: string[]): void {
+  setIgnoreWords(words: IgnoreWordEntry[]): void {
     this.masker.setIgnoreWords(words);
     this.translator.retranslateAll();
   }

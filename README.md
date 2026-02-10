@@ -4,9 +4,9 @@
 [![Build Status](https://img.shields.io/github/actions/workflow/status/gabepri/auto-dom-i18n/main.yml)](https://github.com/gabepri/auto-dom-i18n/actions)
 [![License](https://img.shields.io/github/license/gabepri/auto-dom-i18n)](https://github.com/gabepri/auto-dom-i18n/blob/main/LICENSE)
 
-**auto-dom-i18n** is a zero-dependency, framework-agnostic translation library that uses `MutationObserver` to automatically translate text content in your application.
+**auto-dom-i18n** is a framework-agnostic translation library that uses `MutationObserver` to automatically translate text content in your application, with built-in ICU MessageFormat support for advanced pluralization and gender handling.
 
-It features **Smart Masking**, **Inline Tag Support**, and **Context-Aware Resolution**. Unlike traditional libraries that map static keys to strings, this library observes the DOM, detects natural language, and resolves the correct translation based on the user's gender or formality—all without manual plumbing.
+It features **Smart Masking**, **Inline Tag Support**, and **ICU MessageFormat** evaluation. Unlike traditional libraries that map static keys to strings, this library observes the DOM and detects natural language automatically—no manual key mapping or framework bindings required.
 
 ## 📋 Table of Contents
 
@@ -17,6 +17,7 @@ It features **Smart Masking**, **Inline Tag Support**, and **Context-Aware Resol
 - [Backend Requirements](#-backend-requirements)
 - [Programmatic API](#-programmatic-api)
 - [How It Works](#-how-it-works)
+- [ICU MessageFormat](#-icu-messageformat)
 - [Browser Support](#-browser-support)
 - [Performance](#-performance)
 - [Security](#-security)
@@ -28,8 +29,8 @@ It features **Smart Masking**, **Inline Tag Support**, and **Context-Aware Resol
 ## ✨ Features
 
 * **Automatic Detection:** Uses `MutationObserver` to watch for new DOM elements or text changes.
-* **Natural Pluralization:** Handles plurals automatically. "1 item" and "5 items" generate distinct translation keys, eliminating the need for complex client-side pluralization logic.
-* **Polymorphic Translation:** Supports complex variants (gender, formality). The backend can return an object of variants, and the library automatically selects the most specific match based on the user's current context (e.g., `female_formal`).
+* **Natural Pluralization:** Handles plurals automatically. "1 item" and "5 items" generate distinct translation keys. For words with identical singular/plural forms (e.g., "sheep"), backends can return ICU MessageFormat strings for proper pluralization in any language.
+* **ICU MessageFormat:** Backends can return ICU MessageFormat strings instead of plain translations. The library evaluates `plural`, `select`, and other ICU constructs client-side using variable metadata (type, gender, etc.) auto-detected from the DOM.
 * **Smart Masking:** Automatically identifies dynamic content (numbers and symbols, including date formats like `01/15/2024`) and replaces them with placeholders. Proper nouns and other terms can be masked via the `ignoreWords` config. All-uppercase text is normalized to share a cache key with its lowercase equivalent. Casing is restored after translation.
 * **Rich Context Hook:** The translation callback receives the original text, masked text, and extracted variables, giving your backend (or LLM) full context.
 * **Attribute Preservation:** Automatically strips attributes (like `href`, `class`) from tags before translation and re-injects them.
@@ -58,26 +59,10 @@ import { I18nObserver } from 'auto-dom-i18n';
 // 1. Define your configuration
 const i18n = new I18nObserver({
   locale: 'es', // Target language
-  
-  // GLOBAL CONTEXT: Defines the current user state for variant resolution.
-  // These values are used to generate keys (e.g., "female", "female_formal")
-  context: {
-    gender: 'female',
-    formality: 'formal'
-  },
-  
-  // FALLBACK CONTEXT: Defines the default values to use if the current context
-  // doesn't match any keys in the translation object.
-  fallbackContext: {
-    gender: 'neutral',
-    formality: 'neutral'
-  },
-  
-  // ORDER MATTERS: Defines how compound keys are generated (e.g. "gender_formality")
-  contextOrder: ['gender', 'formality'],
 
   // Words to treat as variables (never translated)
-  ignoreWords: ['Google', 'John Doe'],
+  // Plain strings or objects with metadata for ICU MessageFormat
+  ignoreWords: ['Google', { word: 'John Doe', meta: { gender: 'male' } }],
 
   // THE CALLBACK: Called when text is not in cache
   onMissingTranslation: async (items, locale) => {
@@ -106,14 +91,11 @@ The `I18nObserver` constructor accepts a config object with the following proper
 | :--- | :--- | :--- | :--- |
 | `locale` | `string` | **Required** | The target language code (e.g., 'en', 'fr', 'ja'). |
 | `onMissingTranslation` | `function` | **Required** | Async function called when text is not in cache. Receives `(items[], locale)`. Return a Map/Object to apply translations, or `null` to take no action. If the callback throws, the affected elements remain in their pending state and the error is logged to the console. |
-| `context` | `object` | `{}` | Global state used to resolve polymorphic translations. Values must be strings. |
-| `fallbackContext` | `object` | `{ gender: 'neutral', formality: 'neutral' }` | The specific context values to use as a fallback if the current `context` fails to find a match in the translation variants. |
-| `contextOrder` | `string[]` | `['gender', 'formality']` | The priority order used to construct compound keys for variants (e.g., `gender_formality`). |
 | `allowedInlineTags` | `string[]` | `['a', 'b', 'i', 'u', 'strong', 'em', 'span', 'small', 'mark', 'del']` | HTML tags that are considered part of the sentence structure. |
 | `translatableAttributes` | `string[]` | `['title', 'placeholder', 'alt', 'aria-label']` | HTML attributes to translate alongside text nodes. |
 | `ignoreSelectors` | `string[]` | `['script', 'style', 'code']` | CSS selectors to ignore. Content inside these elements will never be observed or translated. |
-| `ignoreWords` | `string[]` | `[]` | Proper nouns or terms to treat as variables. |
-| `initialCache` | `object` | `{}` | A dictionary of pre-loaded translations keyed by masked string. Values can be a translated string or a variant object (e.g., `{ "Hello {{0}}": "Hola {{0}}" }`). |
+| `ignoreWords` | `IgnoreWordEntry[]` | `[]` | Proper nouns or terms to treat as variables. Each entry can be a plain string (e.g., `'Google'`) or an object with metadata (e.g., `{ word: 'Mary', meta: { gender: 'female' } }`). Metadata is passed to ICU MessageFormat evaluation as `{N_key}` arguments. |
+| `initialCache` | `object` | `{}` | A dictionary of pre-loaded translations keyed by masked string (e.g., `{ "Hello {{0}}": "Hola {{0}}" }`). Values can be plain strings or ICU MessageFormat patterns. |
 | `rootElement` | `HTMLElement` | `document.body` | The DOM element to observe. Use this to scope translation to a specific subtree. |
 | `debounceTime` | `number` | `200` | Time in ms to wait before batching requests. |
 | `maxBatchSize` | `number` | `50` | Maximum number of strings per request. |
@@ -129,16 +111,18 @@ The `items` array passed to your callback contains objects with this structure:
 
 ```typescript
 {
-  masked: string;      // "Hello <b0>{{0}}</b0>" (The Cache Key)
-  original: string;    // "Hello <b>Mary</b>" (For LLM Context)
-  variables: string[]; // ["Mary"]
-  debug?: {            // Only present when debug: true
+  masked: string;            // "Hello <b0>{{0}}</b0>" (The Cache Key)
+  original: string;          // "Hello <b>Mary</b>" (For LLM Context)
+  variables: VariableInfo[]; // [{ value: "Mary", type: "ignoreWord", meta: { gender: "female" } }]
+  debug?: {                  // Only present when debug: true
     elementOpenTag: string;    // '<p class="greeting">'
     childElements: Array<{ tag: string; classes: string }>;
     source: 'text' | `attribute:${string}`;
   };
 }
 ```
+
+Each variable includes its auto-detected type (`'ignoreWord'`, `'number'`, `'date'`, `'url'`, `'email'`, `'symbol'`, or `'comment'`) and optional metadata from `ignoreWords` config. This information is used for ICU MessageFormat evaluation and can help your backend generate better translations.
 
 ---
 
@@ -156,14 +140,14 @@ Here is an example of how you might structure the POST body in your callback:
     {
       "masked": "Welcome back, {{0}}",
       "original": "Welcome back, John",
-      "variables": ["John"]
+      "variables": [{ "value": "John", "type": "ignoreWord" }]
     }
   ]
 }
 ```
 
 ### Expected Response Format
-Your backend must return a JSON object where the **keys** match the `masked` strings sent in the request, and the **values** are either a string or a variant object.
+Your backend must return a JSON object where the **keys** match the `masked` strings sent in the request, and the **values** are strings — either a simple translation or an ICU MessageFormat pattern.
 
 **Simple Response:**
 ```json
@@ -172,19 +156,26 @@ Your backend must return a JSON object where the **keys** match the `masked` str
 }
 ```
 
-**Polymorphic Response (recommended for LLMs):**
+**ICU MessageFormat Response:**
+For cases where simple substitution isn't enough (e.g., words with identical singular/plural forms, or per-variable gender), the backend can return an ICU MessageFormat string:
+
 ```json
 {
-  "Welcome back, {{0}}": {
-    "male": "Bienvenido de nuevo, {{0}}",
-    "female": "Bienvenida de nuevo, {{0}}",
-    "formal": "Le damos la bienvenida, {{0}}"
-  }
+  "{{0}} sheep": "{0, plural, one {# oveja} other {# ovejas}}"
 }
 ```
 
+**ICU with gender metadata:**
+```json
+{
+  "{{0}} bought {{1}} sheep": "{0_gender, select, female {{0} compró} other {{0} compró}} {1, plural, one {# oveja} other {# ovejas}}"
+}
+```
+
+In ICU responses, use `{N}` (single braces) instead of `{{N}}` (double braces). The library auto-detects the format. Variable metadata from `ignoreWords` is available as `{N_key}` arguments (e.g., `{0_gender}`). Numbers are automatically parsed for proper plural rule evaluation.
+
 **Important Implementation Notes:**
-1.  **Preserve Variables:** Your translation logic must preserve the `{{0}}`, `{{1}}` placeholders in the output string.
+1.  **Preserve Variables:** Your translation logic must preserve the `{{0}}`, `{{1}}` placeholders in the output string (or use `{0}`, `{1}` for ICU format).
 2.  **Preserve Tags:** If the input contains `<b0>...</b0>`, the output must also contain `<b0>...</b0>` wrapping the corresponding translated text.
 3.  **Context Hints:** Pass the `original` string to your LLM prompt to help it understand context (e.g., that "Save" is a button, or "John" is a name), but always key your response by the `masked` string.
 
@@ -211,29 +202,27 @@ Manually load translations into the cache. This bypasses the network queue and m
 ```javascript
 i18n.setTranslation('es', {
   "Welcome {{0}}": "Bienvenido {{0}}",
-  "Save": { "male": "Guardar", "formal": "Almacenar" }
+  "Save": "Guardar"
 });
 ```
 
 ### `getTranslation(key, locale?)`
 
-Retrieves the raw translation entry (string or variant object) from the cache. This is useful for debugging or inspecting what variants are available for a key.
+Retrieves the translation string from the cache. Returns `undefined` if the key is not found.
 
 ```javascript
-// Returns { "male": "Guardar", "formal": "Almacenar" }
-const variants = i18n.getTranslation("Save", "es");
+const translation = i18n.getTranslation("Save", "es"); // "Guardar"
 ```
 
 ### `translate(text, variables?)`
 
-Imperatively translate a string using the current configuration and context. Returns the original text (with variables substituted) if no translation is found.
+Imperatively translate a string using the current locale. Returns the original text (with variables substituted) if no translation is found.
 
 * `text`: The string to translate (e.g. "Hello {{0}}")
 * `variables`: *(Optional)* Array of strings to replace placeholders (e.g. `["World"]`)
 
 ```javascript
-// Returns "Bienvenido John" based on current context
-const text = i18n.translate("Welcome {{0}}", ["John"]);
+const text = i18n.translate("Welcome {{0}}", ["John"]); // "Bienvenido John"
 ```
 
 ### `setLocale(locale)`
@@ -242,14 +231,6 @@ Updates the target locale and re-translates all observed nodes using the new loc
 
 ```javascript
 i18n.setLocale('fr');
-```
-
-### `setContext(context)`
-
-Replaces the entire global context and re-resolves all visible translations using the new values. This is a full replacement, not a merge — any keys omitted from the new context will be removed. No network requests are made; only the variant resolution changes.
-
-```javascript
-i18n.setContext({ gender: 'male', formality: 'formal' });
 ```
 
 ### `getIgnoreWords()`
@@ -278,10 +259,10 @@ i18n.removeIgnoreWords('Google');
 
 ### `setIgnoreWords(words)`
 
-Replaces the entire ignore words list and re-translates all observed nodes.
+Replaces the entire ignore words list and re-translates all observed nodes. Accepts plain strings or objects with metadata.
 
 ```javascript
-i18n.setIgnoreWords(['NewBrand', 'Jane']);
+i18n.setIgnoreWords(['NewBrand', { word: 'Jane', meta: { gender: 'female' } }]);
 ```
 
 ### `stop()`
@@ -319,7 +300,7 @@ The library watches the DOM for text changes. It intelligently masks variables a
 
 The library uses three data attributes during translation (all configurable via options):
 
-1.  **`data-i18n-original`:** Stores the original text when a translation is applied. The observer checks this attribute to skip nodes it has already translated, preventing infinite loops. It also enables `setLocale()` and `setContext()` to re-translate from the original source.
+1.  **`data-i18n-original`:** Stores the original text when a translation is applied. The observer checks this attribute to skip nodes it has already translated, preventing infinite loops. It also enables `setLocale()` to re-translate from the original source.
 2.  **`data-i18n-pending`:** Added to elements while a translation request is in-flight. Removed once the translation is applied. Use this for CSS-based FOUC mitigation (e.g., `[data-i18n-pending] { visibility: hidden; }`).
 3.  **`data-i18n-key`:** *(Optional, user-provided)* If present on an element, its value is used as the cache key instead of the computed masked string. This is useful when automatic masking produces an ambiguous key, or when you want to share a translation across elements with different source text.
 4.  **`data-i18n-ignore`:** *(Optional, user-provided)* If present on an element, the observer will completely skip that element and its entire subtree — no text, attributes, or mutations will be processed. Useful for excluding regions that contain sensitive data, code snippets, or content that should never be translated.
@@ -332,52 +313,13 @@ The library uses three data attributes during translation (all configurable via 
 
 *Note: The actual attributes (href, class) are stripped for the translation key but re-applied during restoration.*
 
-### 2. Polymorphic Resolution (Variants)
+### 2. Restoration
 
-Your backend can return a simple string, or a **Variant Object** if the translation depends on context (gender, formality, plurality).
+The library applies the translation and re-injects all original variables and attributes.
 
-#### Variant Data Format
+* **Example:** Masked key `Please click <a0>here</a0>` → Translation `Haga clic <a0>aqui</a0>` → Result `Haga clic <a href="/login">aqui</a>`
 
-The variant object uses keys that correspond to valid context combinations. Compound keys are joined by an underscore `_`. **Specific keys are preferred over generic fallbacks.**
-
-**Scenario:**
-
-* **Current Context:** `{ gender: 'female', formality: 'formal' }`
-* **Fallback Context:** `{ gender: 'male' }`
-* **Context Order:** `['gender', 'formality']`
-* **Source Text:** `Welcome <b0>{{0}}</b0>`
-
-**Backend Response:**
-
-```json
-{
-  "Welcome <b0>{{0}}</b0>": {
-    "male": "Bienvenido <b0>{{0}}</b0>",
-    "female": "Bienvenida <b0>{{0}}</b0>", 
-    "female_formal": "Le damos la bienvenida a <b0>{{0}}</b0>",
-    "formal": "Le damos la bienvenida <b0>{{0}}</b0>"
-  }
-}
-```
-
-#### Resolution Logic
-
-The library attempts to find the most specific match using the **Current Context**. If no match is found, it attempts to resolve using the **Fallback Context**.
-
-With the context above (`female` + `formal`), the lookup order is:
-
-1.  **Exact Compound Match:** `female_formal` (Found! Uses this one)
-2.  **Partial Match (Current):** `female`
-3.  **Partial Match (Current):** `formal`
-4.  **Fallback Match:** `male` (Derived from `fallbackContext.gender`)
-
-### 3. Restoration
-
-The library applies the chosen translation variant and re-injects all original variables and attributes.
-
-* **Result:** `Le damos la bienvenida a <b>Mary</b>`
-
-### 4. Handling Plurals (Automatic)
+### 3. Handling Plurals (Automatic)
 
 Since the library observes the rendered DOM, pluralization is handled naturally by the masking process. You do not need to set a global `plural` context.
 
@@ -386,7 +328,80 @@ Since the library observes the rendered DOM, pluralization is handled naturally 
 
 These result in **two different cache keys**, allowing your backend to provide distinct translations for each form without complex client-side logic.
 
-> **Note:** This approach captures the plural forms present in the source language. For target languages with additional plural forms (e.g., Russian, Arabic, Polish), you can use additional context variables (e.g., `{ plural: 'few' }`) alongside your backend's CLDR plural rules to return the correct variant for each source key.
+#### Same-Form Words (ICU MessageFormat)
+
+Some English words have identical singular and plural forms (e.g., "sheep", "fish", "deer"). These produce the **same cache key** (`{{0}} sheep`), which means the backend can't distinguish "1 sheep" from "5 sheep" using simple substitution alone.
+
+For these cases, the backend should return an **ICU MessageFormat** string instead:
+
+```json
+{
+  "{{0}} sheep": "{0, plural, one {# oveja} other {# ovejas}}"
+}
+```
+
+The library detects ICU format automatically (single-brace `{0}` vs double-brace `{{0}}`), parses numeric variables for proper plural rule evaluation, and evaluates the pattern client-side using the [`intl-messageformat`](https://formatjs.io/docs/intl-messageformat/) library. This handles CLDR plural rules for all locales correctly.
+
+> **Note:** For target languages with additional plural forms (e.g., Russian, Arabic, Polish), ICU MessageFormat is the recommended approach. The `intl-messageformat` library supports all CLDR plural categories (`zero`, `one`, `two`, `few`, `many`, `other`).
+
+---
+
+## 🌍 ICU MessageFormat
+
+The library supports [ICU MessageFormat](https://unicode-org.github.io/icu/userguide/format_parse/messages/) for advanced pluralization and gender handling. This is powered by the [`intl-messageformat`](https://formatjs.io/docs/intl-messageformat/) library.
+
+### When to Use ICU
+
+Use ICU MessageFormat when:
+- **Same-form words:** English words like "sheep", "fish", "deer" produce the same cache key regardless of count. ICU `plural` rules let the backend provide correct translations.
+- **Per-variable gender/context:** Multiple variables in a sentence have different genders. ICU `select` with metadata lets the backend handle each variable independently.
+
+### How It Works
+
+1. The masker detects each variable's type (`number`, `ignoreWord`, `date`, etc.) and collects metadata from `ignoreWords` config.
+2. The backend receives `VariableInfo` objects and can return either:
+   - **Simple format** (`{{0}}`): Direct substitution (backward compatible)
+   - **ICU format** (`{0}`): Evaluated client-side with `intl-messageformat`
+3. The library auto-detects the format: double-brace `{{0}}` = simple, single-brace `{0}` = ICU.
+
+### Variable Arguments
+
+ICU patterns can reference variables by index and their metadata:
+
+| Argument | Source | Example |
+| :--- | :--- | :--- |
+| `{0}` | Variable value | `"Mary"` or `5` (numbers auto-parsed) |
+| `{0_gender}` | Metadata from `ignoreWords` | `"female"` |
+| `{0_formality}` | Metadata from `ignoreWords` | `"formal"` |
+
+### Example Flow
+
+**Config:**
+```javascript
+const i18n = new I18nObserver({
+  locale: 'fr',
+  ignoreWords: [{ word: 'Mary', meta: { gender: 'female' } }],
+  onMissingTranslation: async (items, locale) => {
+    // items[0].variables = [
+    //   { value: "Mary", type: "ignoreWord", meta: { gender: "female" } },
+    //   { value: "5", type: "number" }
+    // ]
+    return await translateWithBackend(items, locale);
+  }
+});
+```
+
+**DOM:** `Mary bought 5 sheep`
+**Masked key:** `{{0}} bought {{1}} sheep`
+
+**Backend returns ICU:**
+```json
+{
+  "{{0}} bought {{1}} sheep": "{0_gender, select, female {{0} a acheté} other {{0} a acheté}} {1, plural, one {# mouton} other {# moutons}}"
+}
+```
+
+**Result:** `Mary a acheté 5 moutons`
 
 ---
 
@@ -545,8 +560,7 @@ We welcome contributions! This library is built with TypeScript and uses Vitest 
 * **`Observer.ts`**: Manages the `MutationObserver` and DOM filtering. Handles re-entry prevention via the configured `originalAttribute`.
 * **`Store.ts`**: The internal state manager. It uses a **Two-Tier Map** (Locale -> Key -> Entry) to store raw variant objects. It is **not** exposed directly to ensure state integrity (handling `pending`, `resolved`, `reported` flags).
 * **`Queue.ts`**: Manages debouncing and batching of translation requests. Collects pending items during the `debounceTime` window and dispatches them in chunks of `maxBatchSize` to the `onMissingTranslation` callback.
-* **`Masker.ts`**: Handles regex logic for variables (`{{0}}`) and attribute stripping (`<a0>`).
-* **`Resolver.ts`**: The logic that generates candidate keys (e.g., `female_formal`) and picks the correct variant.
+* **`Masker.ts`**: Handles regex logic for variables (`{{0}}`), attribute stripping (`<a0>`), and ICU MessageFormat evaluation.
 * **`Translator.ts`**: Coordinates the Cache, Network requests, and DOM updates.
 
 ### Testing

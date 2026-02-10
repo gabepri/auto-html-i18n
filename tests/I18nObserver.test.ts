@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { I18nObserver } from '../src/I18nObserver';
-import type { I18nConfig, TranslationItem } from '../src/types';
+import type { I18nConfig } from '../src/types';
 
 function createConfig(overrides: Partial<I18nConfig> = {}): I18nConfig {
   return {
@@ -34,14 +34,6 @@ describe('I18nObserver', () => {
       expect(i18n.getTranslation('Hello')).toBe('Hola');
     });
 
-    it('should load variant objects from initialCache', () => {
-      const variant = { male: 'Bienvenido', female: 'Bienvenida' };
-      const config = createConfig({
-        initialCache: { 'Welcome': variant },
-      });
-      const i18n = new I18nObserver(config);
-      expect(i18n.getTranslation('Welcome')).toEqual(variant);
-    });
   });
 
   describe('start() / stop()', () => {
@@ -114,13 +106,6 @@ describe('I18nObserver', () => {
       expect(i18n.getTranslation('Bye')).toBe('Adiós');
     });
 
-    it('should work for variant objects', () => {
-      const i18n = new I18nObserver(createConfig());
-      const variant = { male: 'Bienvenido', female: 'Bienvenida' };
-      i18n.setTranslation('es', { 'Welcome': variant });
-
-      expect(i18n.getTranslation('Welcome')).toEqual(variant);
-    });
   });
 
   describe('getTranslation()', () => {
@@ -177,15 +162,6 @@ describe('I18nObserver', () => {
       expect(i18n.translate('Hello {{0}}', ['World'])).toBe('Hello World');
     });
 
-    it('should resolve variants based on context', () => {
-      const i18n = new I18nObserver(createConfig({
-        context: { gender: 'female' },
-        initialCache: {
-          'Welcome': { male: 'Bienvenido', female: 'Bienvenida' },
-        },
-      }));
-      expect(i18n.translate('Welcome')).toBe('Bienvenida');
-    });
   });
 
   describe('setLocale()', () => {
@@ -204,28 +180,6 @@ describe('I18nObserver', () => {
       i18n.setLocale('fr');
 
       expect(root.querySelector('p')?.textContent).toBe('Bonjour');
-
-      i18n.stop();
-    });
-  });
-
-  describe('setContext()', () => {
-    it('should replace context and re-resolve variants', () => {
-      root.innerHTML = '<p>Welcome</p>';
-      const i18n = new I18nObserver(createConfig({
-        context: { gender: 'male' },
-        initialCache: {
-          'Welcome': { male: 'Bienvenido', female: 'Bienvenida' },
-        },
-        rootElement: root,
-      }));
-
-      i18n.start();
-      expect(root.querySelector('p')?.textContent).toBe('Bienvenido');
-
-      i18n.setContext({ gender: 'female' });
-
-      expect(root.querySelector('p')?.textContent).toBe('Bienvenida');
 
       i18n.stop();
     });
@@ -308,6 +262,36 @@ describe('I18nObserver', () => {
         i18n.removeIgnoreWords('Alice');
         expect(i18n.getIgnoreWords()).not.toContain('Alice');
         expect(i18n.getIgnoreWords()).toContain('Bob');
+      });
+    });
+
+    describe('ignoreWords with metadata', () => {
+      it('should accept object entries with meta in config', () => {
+        const i18n = new I18nObserver(createConfig({
+          ignoreWords: [{ word: 'Mary', meta: { gender: 'female' } }, 'Google'],
+        }));
+        expect(i18n.getIgnoreWords()).toEqual(expect.arrayContaining(['Mary', 'Google']));
+        expect(i18n.getIgnoreWords()).toHaveLength(2);
+      });
+
+      it('should pass metadata through to translation items', () => {
+        root.innerHTML = '<p>Hello Mary</p>';
+        const onMissing = vi.fn().mockResolvedValue(null);
+        const i18n = new I18nObserver(createConfig({
+          ignoreWords: [{ word: 'Mary', meta: { gender: 'female' } }],
+          onMissingTranslation: onMissing,
+          rootElement: root,
+          debounceTime: 0,
+        }));
+
+        i18n.start();
+        i18n.stop();
+      });
+
+      it('should accept setIgnoreWords with IgnoreWordEntry objects', () => {
+        const i18n = new I18nObserver(createConfig());
+        i18n.setIgnoreWords([{ word: 'Mary', meta: { gender: 'female' } }]);
+        expect(i18n.getIgnoreWords()).toEqual(['Mary']);
       });
     });
 

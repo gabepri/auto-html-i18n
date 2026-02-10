@@ -3,7 +3,6 @@ import { Translator, TranslatorConfig } from '../src/Translator';
 import { Store } from '../src/Store';
 import { Queue } from '../src/Queue';
 import { Masker } from '../src/Masker';
-import { Resolver } from '../src/Resolver';
 import type { TranslationItem } from '../src/types';
 
 function createDeps(overrides: {
@@ -21,11 +20,6 @@ function createDeps(overrides: {
     ignoreWords: ['Mary', 'John'],
     allowedInlineTags: ['a', 'b', 'i', 'u', 'strong', 'em', 'span', 'small', 'mark', 'del'],
   });
-  const resolver = new Resolver({
-    context: { gender: 'female' },
-    fallbackContext: { gender: 'neutral' },
-    contextOrder: ['gender'],
-  });
   const onMissingTranslation = vi.fn().mockResolvedValue(null);
   const config: TranslatorConfig = {
     locale: 'es',
@@ -38,8 +32,8 @@ function createDeps(overrides: {
     ...overrides.configOverrides,
   };
 
-  const translator = new Translator(store, queue, masker, resolver, config);
-  return { translator, store, queue, masker, resolver, config, onMissingTranslation, onFlushFn };
+  const translator = new Translator(store, queue, masker, config);
+  return { translator, store, queue, masker, config, onMissingTranslation, onFlushFn };
 }
 
 describe('Translator', () => {
@@ -63,19 +57,6 @@ describe('Translator', () => {
       translator.processText(p, 'Hello');
 
       expect(p.textContent).toBe('Hola');
-    });
-
-    it('should resolve variant and apply', () => {
-      const { translator, store } = createDeps();
-      store.set('es', 'Welcome', { male: 'Bienvenido', female: 'Bienvenida' });
-
-      const p = document.createElement('p');
-      p.textContent = 'Welcome';
-      root.appendChild(p);
-
-      translator.processText(p, 'Welcome');
-
-      expect(p.textContent).toBe('Bienvenida'); // female context
     });
 
     it('should unmask variables in cached translation', () => {
@@ -303,36 +284,31 @@ describe('Translator', () => {
   });
 
   describe('retranslateAll()', () => {
-    it('should re-resolve all elements with originalAttribute', () => {
+    it('should re-translate all elements with originalAttribute', () => {
       const { translator, store } = createDeps();
-      store.set('es', 'Hello', { male: 'Hola-M', female: 'Hola-F' });
+      store.set('es', 'Hello', 'Hola');
 
       const p = document.createElement('p');
       p.textContent = 'Hello';
       root.appendChild(p);
 
       translator.processText(p, 'Hello');
-      expect(p.textContent).toBe('Hola-F'); // female context
+      expect(p.textContent).toBe('Hola');
 
-      // Now the public API would call resolver.updateContext + retranslateAll
-      // For this test, we just verify retranslateAll re-processes nodes
+      // Verify retranslateAll re-processes nodes
       translator.retranslateAll();
-
-      // Still female context, so still Hola-F
-      expect(p.textContent).toBe('Hola-F');
+      expect(p.textContent).toBe('Hola');
     });
 
     it('should re-translate attributes with original-tracking data', () => {
-      const { translator, store, resolver } = createDeps();
-      store.set('es', 'Enter name', { male: 'Ingrese nombre', female: 'Ingrese su nombre' });
+      const { translator, store } = createDeps();
+      store.set('es', 'Enter name', 'Ingrese nombre');
 
       const input = document.createElement('input');
       input.setAttribute('placeholder', 'Ingrese su nombre');
       input.setAttribute('data-i18n-original-placeholder', 'Enter name');
       root.appendChild(input);
 
-      // Change context to male
-      resolver.updateContext({ gender: 'male' });
       translator.retranslateAll();
 
       expect(input.getAttribute('placeholder')).toBe('Ingrese nombre');
@@ -777,6 +753,54 @@ describe('Translator', () => {
       // Simulate translation arriving - should not throw
       store.set('es', 'Hello', 'Hola');
       expect(() => translator.applyPending('Hello')).not.toThrow();
+    });
+  });
+
+  describe('ICU MessageFormat', () => {
+    it('should evaluate ICU plural from cached translation (sync)', () => {
+      const { translator, store } = createDeps();
+      store.set('es', '{{0}} sheep', '{0, plural, one {# oveja} other {# ovejas}}');
+
+      const p = document.createElement('p');
+      p.textContent = '5 sheep';
+      root.appendChild(p);
+
+      translator.processText(p, '5 sheep');
+
+      expect(p.textContent).toBe('5 ovejas');
+    });
+
+    it('should evaluate ICU plural via applyPending (async)', () => {
+      const { translator, store } = createDeps();
+
+      const p = document.createElement('p');
+      p.textContent = '1 sheep';
+      root.appendChild(p);
+
+      translator.processText(p, '1 sheep');
+      expect(p.hasAttribute('data-i18n-pending')).toBe(true);
+
+      store.set('es', '{{0}} sheep', '{0, plural, one {# oveja} other {# ovejas}}');
+      translator.applyPending('{{0}} sheep');
+
+      expect(p.textContent).toBe('1 oveja');
+    });
+
+    it('should pass VariableInfo objects (not strings) in enqueued items', () => {
+      const { translator, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const p = document.createElement('p');
+      p.textContent = 'Hello Mary';
+      root.appendChild(p);
+
+      translator.processText(p, 'Hello Mary');
+
+      expect(enqueueSpy).toHaveBeenCalledTimes(1);
+      const item = enqueueSpy.mock.calls[0]![0];
+      expect(item.variables).toEqual([
+        { value: 'Mary', type: 'ignoreWord' },
+      ]);
     });
   });
 

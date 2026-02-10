@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { I18nObserver } from '../src/I18nObserver';
-import type { I18nConfig, TranslationItem } from '../src/types';
+import type { TranslationItem } from '../src/types';
 
 async function waitForMutations(): Promise<void> {
   // Flush microtasks and any pending timers to ensure MutationObserver callbacks fire
@@ -90,30 +90,6 @@ describe('Integration Tests', () => {
       i18n.stop();
     });
 
-    it('should handle polymorphic translation with context switching', async () => {
-      const i18n = new I18nObserver({
-        locale: 'es',
-        onMissingTranslation: vi.fn().mockResolvedValue(null),
-        context: { gender: 'male' },
-        initialCache: {
-          'Welcome': { male: 'Bienvenido', female: 'Bienvenida' },
-        },
-        rootElement: root,
-      });
-
-      root.innerHTML = '<p>Welcome</p>';
-      i18n.start();
-
-      expect(root.querySelector('p')!.textContent).toBe('Bienvenido');
-
-      // Switch context — no network request
-      i18n.setContext({ gender: 'female' });
-
-      expect(root.querySelector('p')!.textContent).toBe('Bienvenida');
-
-      i18n.stop();
-    });
-
     it('should handle locale switching', async () => {
       const onMissing = vi.fn().mockResolvedValue({ 'Hello': 'Bonjour' });
 
@@ -184,7 +160,10 @@ describe('Integration Tests', () => {
 
       const item = onMissing.mock.calls[0]![0][0]!;
       expect(item.masked).toBe('{{0}} has {{1}} cats');
-      expect(item.variables).toEqual(['John', '3']);
+      expect(item.variables).toEqual([
+        { value: 'John', type: 'ignoreWord' },
+        { value: '3', type: 'number' },
+      ]);
 
       expect(root.querySelector('p')!.textContent).toBe('John tiene 3 gatos');
 
@@ -517,6 +496,94 @@ describe('Integration Tests', () => {
       expect(onMissing).toHaveBeenCalledTimes(1);
       const item = onMissing.mock.calls[0]![0][0]!;
       expect(item.debug).toBeUndefined();
+    });
+  });
+
+  describe('ICU MessageFormat flow', () => {
+    it('should evaluate ICU plural from backend response', async () => {
+      const onMissing = vi.fn().mockResolvedValue({
+        '{{0}} sheep': '{0, plural, one {# oveja} other {# ovejas}}',
+      });
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        rootElement: root,
+      });
+
+      root.innerHTML = '<p>5 sheep</p>';
+      i18n.start();
+
+      await flushDebounce();
+
+      expect(root.querySelector('p')!.textContent).toBe('5 ovejas');
+
+      i18n.stop();
+    });
+
+    it('should evaluate ICU singular from backend response', async () => {
+      const onMissing = vi.fn().mockResolvedValue({
+        '{{0}} sheep': '{0, plural, one {# oveja} other {# ovejas}}',
+      });
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        rootElement: root,
+      });
+
+      root.innerHTML = '<p>1 sheep</p>';
+      i18n.start();
+
+      await flushDebounce();
+
+      expect(root.querySelector('p')!.textContent).toBe('1 oveja');
+
+      i18n.stop();
+    });
+
+    it('should evaluate ICU select with ignoreWord metadata', async () => {
+      const onMissing = vi.fn().mockResolvedValue({
+        '{{0}} bought {{1}} sheep': '{0_gender, select, female {{0} compró} other {{0} compró}} {1, plural, one {# oveja} other {# ovejas}}',
+      });
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        ignoreWords: [{ word: 'Mary', meta: { gender: 'female' } }],
+        rootElement: root,
+      });
+
+      root.innerHTML = '<p>Mary bought 5 sheep</p>';
+      i18n.start();
+
+      await flushDebounce();
+
+      expect(root.querySelector('p')!.textContent).toBe('Mary compró 5 ovejas');
+
+      i18n.stop();
+    });
+
+    it('should fall back to simple {{N}} substitution for non-ICU translations', async () => {
+      const onMissing = vi.fn().mockResolvedValue({
+        '{{0}} has {{1}} cats': '{{0}} tiene {{1}} gatos',
+      });
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        ignoreWords: ['John'],
+        rootElement: root,
+      });
+
+      root.innerHTML = '<p>John has 3 cats</p>';
+      i18n.start();
+
+      await flushDebounce();
+
+      expect(root.querySelector('p')!.textContent).toBe('John tiene 3 gatos');
+
+      i18n.stop();
     });
   });
 

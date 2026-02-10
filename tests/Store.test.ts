@@ -21,15 +21,6 @@ describe('Store', () => {
       expect(entry!.status).toBe('resolved');
     });
 
-    it('should store and retrieve a variant object', () => {
-      const store = createStore();
-      const variant = { male: 'Bienvenido', female: 'Bienvenida' };
-      store.set('es', 'Welcome', variant);
-      const entry = store.get('es', 'Welcome');
-      expect(entry!.value).toEqual(variant);
-      expect(entry!.status).toBe('resolved');
-    });
-
     it('should overwrite existing entry', () => {
       const store = createStore();
       store.set('es', 'Hello', 'Hola');
@@ -201,11 +192,5 @@ describe('Store', () => {
       expect(store.get('es', 'Hello')!.value).toBe('Hola');
     });
 
-    it('should load variant objects', () => {
-      const store = createStore();
-      const variant = { male: 'Bienvenido', female: 'Bienvenida' };
-      store.loadBulk('es', { Welcome: variant });
-      expect(store.get('es', 'Welcome')!.value).toEqual(variant);
-    });
   });
 });

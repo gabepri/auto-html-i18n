@@ -1,8 +1,7 @@
-import type { CasePattern, TranslationEntry, TranslationItem, TranslationItemDebug, OnMissingTranslationCallback, MaskResult } from './types';
+import type { CasePattern, TranslationItem, TranslationItemDebug, OnMissingTranslationCallback, MaskResult, VariableInfo } from './types';
 import { Store } from './Store';
 import { Queue } from './Queue';
 import { Masker } from './Masker';
-import { Resolver } from './Resolver';
 
 export interface TranslatorConfig {
   locale: string;
@@ -16,7 +15,7 @@ export interface TranslatorConfig {
 
 interface PendingNode {
   element: Element;
-  variables: string[];
+  variables: VariableInfo[];
   tagAttributes: Map<string, Record<string, string>>;
   casePattern: CasePattern;
   leadingWhitespace: string;
@@ -31,7 +30,6 @@ export class Translator {
   private store: Store;
   private queue: Queue;
   private masker: Masker;
-  private resolver: Resolver;
   private config: TranslatorConfig;
   private pendingNodes = new Map<string, Set<PendingNode>>();
 
@@ -39,13 +37,11 @@ export class Translator {
     store: Store,
     queue: Queue,
     masker: Masker,
-    resolver: Resolver,
     config: TranslatorConfig
   ) {
     this.store = store;
     this.queue = queue;
     this.masker = masker;
-    this.resolver = resolver;
     this.config = config;
   }
 
@@ -102,13 +98,10 @@ export class Translator {
     const entry = this.store.get(this.config.locale, cacheKey);
 
     if (entry && entry.status === 'resolved' && entry.value !== null) {
-      const resolved = this.resolver.resolve(entry.value);
-      if (resolved) {
-        const unmasked = this.masker.unmask(resolved, maskResult.variables, maskResult.tagAttributes);
-        const output = this.masker.applyCasePattern(unmasked, maskResult.casePattern);
-        element.setAttribute(attr, maskResult.leadingWhitespace + output + maskResult.trailingWhitespace);
-        element.setAttribute(originalAttrName, originalValue);
-      }
+      const unmasked = this.masker.unmask(entry.value, maskResult.variables, maskResult.tagAttributes, this.config.locale);
+      const output = this.masker.applyCasePattern(unmasked, maskResult.casePattern);
+      element.setAttribute(attr, maskResult.leadingWhitespace + output + maskResult.trailingWhitespace);
+      element.setAttribute(originalAttrName, originalValue);
       return;
     }
 
@@ -145,14 +138,11 @@ export class Translator {
       if (!node.element.isConnected) continue;
 
       if (node.isAttribute && node.attrName) {
-        const resolved = this.resolver.resolve(entry.value);
-        if (resolved) {
-          const unmasked = this.masker.unmask(resolved, node.variables, node.tagAttributes);
-          const output = this.masker.applyCasePattern(unmasked, node.casePattern);
-          node.element.setAttribute(node.attrName, node.leadingWhitespace + output + node.trailingWhitespace);
-          const originalAttrName = `${this.config.originalAttribute}-${node.attrName}`;
-          node.element.setAttribute(originalAttrName, node.originalText);
-        }
+        const unmasked = this.masker.unmask(entry.value, node.variables, node.tagAttributes, this.config.locale);
+        const output = this.masker.applyCasePattern(unmasked, node.casePattern);
+        node.element.setAttribute(node.attrName, node.leadingWhitespace + output + node.trailingWhitespace);
+        const originalAttrName = `${this.config.originalAttribute}-${node.attrName}`;
+        node.element.setAttribute(originalAttrName, node.originalText);
       } else {
         this.applyTranslation(node.element, entry.value, {
           masked: cacheKey,
@@ -214,12 +204,9 @@ export class Translator {
         const entry = this.store.get(this.config.locale, cacheKey);
 
         if (entry && entry.status === 'resolved' && entry.value !== null) {
-          const resolved = this.resolver.resolve(entry.value);
-          if (resolved) {
-            const unmasked = this.masker.unmask(resolved, maskResult.variables, maskResult.tagAttributes);
-            const output = this.masker.applyCasePattern(unmasked, maskResult.casePattern);
-            element.setAttribute(attr, maskResult.leadingWhitespace + output + maskResult.trailingWhitespace);
-          }
+          const unmasked = this.masker.unmask(entry.value, maskResult.variables, maskResult.tagAttributes, this.config.locale);
+          const output = this.masker.applyCasePattern(unmasked, maskResult.casePattern);
+          element.setAttribute(attr, maskResult.leadingWhitespace + output + maskResult.trailingWhitespace);
         } else if (!entry) {
           const item = this.buildItem(cacheKey, originalValue, maskResult.variables, element, `attribute:${attr}`);
           this.store.markPending(this.config.locale, cacheKey);
@@ -252,16 +239,13 @@ export class Translator {
 
   private applyTranslation(
     element: Element,
-    value: TranslationEntry,
+    value: string,
     maskResult: MaskResult,
     originalText: string,
     isHtml: boolean,
     casePattern: CasePattern
   ): void {
-    const resolved = this.resolver.resolve(value);
-    if (!resolved) return;
-
-    const unmasked = this.masker.unmask(resolved, maskResult.variables, maskResult.tagAttributes);
+    const unmasked = this.masker.unmask(value, maskResult.variables, maskResult.tagAttributes, this.config.locale);
     const output = maskResult.leadingWhitespace + this.masker.applyCasePattern(unmasked, casePattern) + maskResult.trailingWhitespace;
 
     if (isHtml) {
@@ -305,7 +289,7 @@ export class Translator {
   private buildItem(
     cacheKey: string,
     originalText: string,
-    variables: string[],
+    variables: VariableInfo[],
     element: Element,
     source: TranslationItemDebug['source']
   ): TranslationItem {

@@ -1,13 +1,21 @@
-import type { CasePattern, MaskerConfig, MaskResult } from './types';
+import { IntlMessageFormat } from 'intl-messageformat';
+import type { CasePattern, IgnoreWordEntry, MaskerConfig, MaskResult, VariableInfo, VariableType } from './types';
+
+interface IgnoreWordInternal {
+  word: string;
+  meta?: Record<string, string>;
+}
 
 export class Masker {
-  private ignoreWords: string[];
+  private ignoreWords: IgnoreWordInternal[];
   private allowedInlineTags: Set<string>;
   private variableRegex: RegExp;
+  private groupTypeMap: VariableType[] = [];
 
   constructor(config: MaskerConfig) {
-    // Sort ignoreWords longest-first for greedy matching
-    this.ignoreWords = [...config.ignoreWords].sort((a, b) => b.length - a.length);
+    // Normalize and sort ignoreWords longest-first for greedy matching
+    this.ignoreWords = normalizeIgnoreWords(config.ignoreWords)
+      .sort((a, b) => b.word.length - a.word.length);
     this.allowedInlineTags = new Set(config.allowedInlineTags);
     this.variableRegex = this.buildVariableRegex();
   }
@@ -73,7 +81,7 @@ export class Masker {
 
     // Phase 2: Mask variables (ignoreWords, dates, numbers)
     // We need to skip content inside < > to avoid matching tag index numbers
-    const variables: string[] = [];
+    const variables: VariableInfo[] = [];
     let masked = '';
     let i = 0;
     while (i < tagProcessed.length) {
@@ -83,7 +91,7 @@ export class Masker {
         if (closeIdx !== -1) {
           const comment = tagProcessed.slice(i, closeIdx + 3);
           const index = variables.length;
-          variables.push(comment);
+          variables.push({ value: comment, type: 'comment' });
           masked += `{{${index}}}`;
           i = closeIdx + 3;
           continue;
@@ -106,7 +114,7 @@ export class Masker {
 
       if (match && match.index === i) {
         const index = variables.length;
-        variables.push(match[0]);
+        variables.push(this.buildVariableInfo(match));
         masked += `{{${index}}}`;
         i += match[0].length;
       } else {
@@ -151,18 +159,35 @@ export class Masker {
 
   unmask(
     translated: string,
-    variables: string[],
-    tagAttributes: Map<string, Record<string, string>>
+    variables: VariableInfo[],
+    tagAttributes: Map<string, Record<string, string>>,
+    locale?: string
   ): string {
     if (translated === '') {
       return '';
     }
 
-    // Phase 1: Restore variables
-    let result = translated.replace(/\{\{(\d+)\}\}/g, (_match, indexStr: string) => {
-      const index = parseInt(indexStr, 10);
-      return variables[index] ?? `{{${indexStr}}}`;
-    });
+    // Phase 1: Detect format and restore variables
+    // {{N}} = simple substitution (our format), {N} or {N, plural/select, ...} = ICU
+    const hasDoubleBrace = /\{\{\d+\}\}/.test(translated);
+    const isICU = !hasDoubleBrace && /\{\d+/.test(translated);
+
+    let result: string;
+
+    if (isICU && locale) {
+      try {
+        result = this.evaluateICU(translated, variables, locale);
+      } catch {
+        // Fallback: return raw pattern on ICU evaluation error
+        result = translated;
+      }
+    } else {
+      // Simple substitution
+      result = translated.replace(/\{\{(\d+)\}\}/g, (_match, indexStr: string) => {
+        const index = parseInt(indexStr, 10);
+        return variables[index]?.value ?? `{{${indexStr}}}`;
+      });
+    }
 
     // Phase 2: Restore tag attributes
     // Replace <tagN> with <tag attrs...> and </tagN> with </tag>
@@ -207,37 +232,93 @@ export class Masker {
   }
 
   getIgnoreWords(): string[] {
-    return [...this.ignoreWords];
+    return this.ignoreWords.map(w => w.word);
   }
 
   addIgnoreWords(...words: string[]): void {
-    const existing = new Set(this.ignoreWords);
+    const existing = new Set(this.ignoreWords.map(w => w.word));
     let changed = false;
     for (const word of words) {
       if (word && !existing.has(word)) {
         existing.add(word);
-        this.ignoreWords.push(word);
+        this.ignoreWords.push({ word });
         changed = true;
       }
     }
     if (changed) {
-      this.ignoreWords.sort((a, b) => b.length - a.length);
+      this.ignoreWords.sort((a, b) => b.word.length - a.word.length);
       this.variableRegex = this.buildVariableRegex();
     }
   }
 
   removeIgnoreWords(...words: string[]): void {
     const toRemove = new Set(words);
-    const newList = this.ignoreWords.filter(w => !toRemove.has(w));
+    const newList = this.ignoreWords.filter(w => !toRemove.has(w.word));
     if (newList.length !== this.ignoreWords.length) {
       this.ignoreWords = newList;
       this.variableRegex = this.buildVariableRegex();
     }
   }
 
-  setIgnoreWords(words: string[]): void {
-    this.ignoreWords = [...words].sort((a, b) => b.length - a.length);
+  setIgnoreWords(words: IgnoreWordEntry[]): void {
+    this.ignoreWords = normalizeIgnoreWords(words)
+      .sort((a, b) => b.word.length - a.word.length);
     this.variableRegex = this.buildVariableRegex();
+  }
+
+  private buildVariableInfo(match: RegExpExecArray): VariableInfo {
+    // Determine which capturing group matched to infer the variable type
+    for (let g = 0; g < this.groupTypeMap.length; g++) {
+      if (match[g + 1] !== undefined) {
+        const type = this.groupTypeMap[g]!;
+        if (type === 'ignoreWord') {
+          const entry = this.ignoreWords.find(w => w.word === match[0]);
+          if (entry?.meta) {
+            return { value: match[0], type, meta: entry.meta };
+          }
+        }
+        return { value: match[0], type };
+      }
+    }
+    return { value: match[0], type: 'symbol' };
+  }
+
+  private evaluateICU(pattern: string, variables: VariableInfo[], locale: string): string {
+    // Temporarily replace all HTML tags to prevent ICU parser conflicts
+    const tagPlaceholders: [string, string][] = [];
+    const icuPattern = pattern.replace(/<\/?[^>]+>/g, (match) => {
+      const placeholder = `\uFFFD${tagPlaceholders.length}\uFFFD`;
+      tagPlaceholders.push([placeholder, match]);
+      return placeholder;
+    });
+
+    const mf = new IntlMessageFormat(icuPattern, locale);
+    const args: Record<string, string | number> = {};
+
+    for (let i = 0; i < variables.length; i++) {
+      const vi = variables[i]!;
+      // Parse numbers for proper ICU plural rule evaluation
+      if (vi.type === 'number') {
+        args[String(i)] = parseFloat(vi.value);
+      } else {
+        args[String(i)] = vi.value;
+      }
+      // Add metadata as {N_key} arguments (e.g. {0_gender})
+      if (vi.meta) {
+        for (const [key, val] of Object.entries(vi.meta)) {
+          args[`${i}_${key}`] = val;
+        }
+      }
+    }
+
+    let result = mf.format(args) as string;
+
+    // Restore indexed tags
+    for (const [placeholder, original] of tagPlaceholders) {
+      result = result.replace(placeholder, original);
+    }
+
+    return result;
   }
 
   private sanitizeTags(html: string): string {
@@ -253,35 +334,47 @@ export class Masker {
   }
 
   private buildVariableRegex(): RegExp {
-    const parts: string[] = [];
+    const groups: string[] = [];
+    this.groupTypeMap = [];
 
     // 1. IgnoreWords (longest first, word boundaries)
-    for (const word of this.ignoreWords) {
-      parts.push(escapeRegex(word));
+    if (this.ignoreWords.length > 0) {
+      const alts = this.ignoreWords.map(w => escapeRegex(w.word)).join('|');
+      groups.push(`(${alts})`);
+      this.groupTypeMap.push('ignoreWord');
     }
 
     // 2. URLs (must come before dates/numbers to match as a whole)
-    parts.push('https?://[^\\s<>]+');
+    groups.push('(https?://[^\\s<>]+)');
+    this.groupTypeMap.push('url');
 
     // 3. Email addresses (must come before dates/numbers)
-    parts.push('[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}');
+    groups.push('([a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,})');
+    this.groupTypeMap.push('email');
 
     // 4. Date patterns (must come before number patterns)
     // Matches: MM/DD/YYYY, YYYY-MM-DD, DD.MM.YYYY, etc.
-    parts.push('\\d{1,4}[/.-]\\d{1,2}[/.-]\\d{1,4}');
+    groups.push('(\\d{1,4}[/.-]\\d{1,2}[/.-]\\d{1,4})');
+    this.groupTypeMap.push('date');
 
     // 5. Numbers (including negative and decimals)
-    parts.push('-?\\d+(?:\\.\\d+)?');
+    groups.push('(-?\\d+(?:\\.\\d+)?)');
+    this.groupTypeMap.push('number');
 
     // 6. Standalone symbols (©, ®, ™, currency, etc.) — not translatable
-    parts.push('[©®™$€£¥¢₹₽§¶†‡•°±¤%]');
+    groups.push('([©®™$€£¥¢₹₽§¶†‡•°±¤%])');
+    this.groupTypeMap.push('symbol');
 
-    if (parts.length === 0) {
+    if (groups.length === 0) {
       return /(?!)/; // Never matches
     }
 
-    return new RegExp(parts.join('|'), 'g');
+    return new RegExp(groups.join('|'), 'g');
   }
+}
+
+function normalizeIgnoreWords(entries: IgnoreWordEntry[]): IgnoreWordInternal[] {
+  return entries.map(e => typeof e === 'string' ? { word: e } : e);
 }
 
 function escapeRegex(str: string): string {

@@ -1,10 +1,7 @@
 // ---- Translation Types ----
 
-/** A translation can be a simple string or a variant object */
-export type TranslationEntry = string | VariantObject;
-
-/** Maps variant keys (e.g. "female_formal") to translated strings */
-export type VariantObject = Record<string, string>;
+/** A translation is a simple string or an ICU MessageFormat pattern */
+export type TranslationEntry = string;
 
 /** DOM context included when debug mode is enabled */
 export interface TranslationItemDebug {
@@ -13,11 +10,21 @@ export interface TranslationItemDebug {
   source: 'text' | `attribute:${string}`;
 }
 
+/** The detected type of a masked variable */
+export type VariableType = 'ignoreWord' | 'number' | 'date' | 'url' | 'email' | 'symbol' | 'comment';
+
+/** Describes a masked variable with its detected type and optional metadata */
+export interface VariableInfo {
+  value: string;
+  type: VariableType;
+  meta?: Record<string, string>;
+}
+
 /** Item sent to the onMissingTranslation callback */
 export interface TranslationItem {
   masked: string;
   original: string;
-  variables: string[];
+  variables: VariableInfo[];
   debug?: TranslationItemDebug;
 }
 
@@ -32,13 +39,10 @@ export type OnMissingTranslationCallback = (
 export interface I18nConfig {
   locale: string;
   onMissingTranslation: OnMissingTranslationCallback;
-  context?: Record<string, string>;
-  fallbackContext?: Record<string, string>;
-  contextOrder?: string[];
   allowedInlineTags?: string[];
   translatableAttributes?: string[];
   ignoreSelectors?: string[];
-  ignoreWords?: string[];
+  ignoreWords?: IgnoreWordEntry[];
   initialCache?: Record<string, TranslationEntry>;
   rootElement?: HTMLElement;
   debounceTime?: number;
@@ -52,11 +56,14 @@ export interface I18nConfig {
 
 // ---- Masker Types ----
 
+/** An ignore word can be a plain string or an object with metadata */
+export type IgnoreWordEntry = string | { word: string; meta?: Record<string, string> };
+
 export type CasePattern = 'lower' | 'upper' | 'mixed';
 
 export interface MaskResult {
   masked: string;
-  variables: string[];
+  variables: VariableInfo[];
   tagAttributes: Map<string, Record<string, string>>;
   casePattern: CasePattern;
   leadingWhitespace: string;
@@ -64,7 +71,7 @@ export interface MaskResult {
 }
 
 export interface MaskerConfig {
-  ignoreWords: string[];
+  ignoreWords: IgnoreWordEntry[];
   allowedInlineTags: string[];
 }
 
@@ -100,10 +107,3 @@ export interface ObserverConfig {
   onAttributeFound: (element: Element, attr: string, value: string) => void;
 }
 
-// ---- Resolver Types ----
-
-export interface ResolverConfig {
-  context: Record<string, string>;
-  fallbackContext: Record<string, string>;
-  contextOrder: string[];
-}

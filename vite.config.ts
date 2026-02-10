@@ -21,5 +21,8 @@ export default defineConfig({
     },
     sourcemap: true,
     target: 'es2020',
+    rollupOptions: {
+      external: ['intl-messageformat'],
+    },
   },
 });
