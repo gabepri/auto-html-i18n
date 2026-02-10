@@ -455,7 +455,7 @@ describe('Translator', () => {
     });
 
     it('should still translate when keyOverride is set even if no translatable content', () => {
-      const { translator, store, queue } = createDeps();
+      const { translator, queue } = createDeps();
       const enqueueSpy = vi.spyOn(queue, 'enqueue');
 
       const p = document.createElement('p');

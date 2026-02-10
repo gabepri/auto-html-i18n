@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Queue } from '../src/Queue';
-import type { QueueConfig, TranslationItem } from '../src/types';
+import type { TranslationItem } from '../src/types';
 
 function makeItem(masked: string): TranslationItem {
   return { masked, original: masked, variables: [] };

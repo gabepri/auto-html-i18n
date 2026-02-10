@@ -69,7 +69,7 @@ describe('Observer', () => {
       observer.start();
 
       expect(onAttributeFound).toHaveBeenCalledTimes(1);
-      const [element, attr, value] = onAttributeFound.mock.calls[0]!;
+      const [, attr, value] = onAttributeFound.mock.calls[0]!;
       expect(attr).toBe('placeholder');
       expect(value).toBe('Enter name');
 
