@@ -26,6 +26,7 @@ function createDeps(overrides: {
     originalAttribute: 'data-i18n-original',
     pendingAttribute: 'data-i18n-pending',
     keyAttribute: 'data-i18n-key',
+    scopeAttribute: 'data-i18n-scope',
     translatableAttributes: ['title', 'placeholder', 'alt', 'aria-label'],
     onMissingTranslation,
     debug: false,
@@ -734,6 +735,167 @@ describe('Translator', () => {
       translator.processText(p, ' HELLO ');
 
       expect(p.textContent).toBe(' HOLA ');
+    });
+  });
+
+  describe('scope support', () => {
+    it('should resolve scoped translation from cache (string entry works for any scope)', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Submit', 'Enviar');
+
+      const section = document.createElement('section');
+      section.setAttribute('data-i18n-scope', 'checkout');
+      const p = document.createElement('p');
+      p.textContent = 'Submit';
+      section.appendChild(p);
+      root.appendChild(section);
+
+      translator.processText(p, 'Submit');
+
+      expect(p.textContent).toBe('Enviar');
+    });
+
+    it('should resolve scoped translation from Record entry', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Submit', { checkout: 'Finalizar compra', settings: 'Guardar' });
+
+      const section = document.createElement('section');
+      section.setAttribute('data-i18n-scope', 'checkout');
+      const p = document.createElement('p');
+      p.textContent = 'Submit';
+      section.appendChild(p);
+      root.appendChild(section);
+
+      translator.processText(p, 'Submit');
+
+      expect(p.textContent).toBe('Finalizar compra');
+    });
+
+    it('should not translate when Record entry lacks matching scope', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Submit', { checkout: 'Finalizar compra' });
+
+      const p = document.createElement('p');
+      p.textContent = 'Submit';
+      root.appendChild(p);
+
+      translator.processText(p, 'Submit');
+
+      // No scope on element, Record has no match → not translated
+      expect(p.textContent).toBe('Submit');
+    });
+
+    it('should inherit scope from ancestor element', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Submit', { checkout: 'Finalizar compra' });
+
+      const page = document.createElement('div');
+      page.setAttribute('data-i18n-scope', 'checkout');
+      const section = document.createElement('section');
+      const p = document.createElement('p');
+      p.textContent = 'Submit';
+      section.appendChild(p);
+      page.appendChild(section);
+      root.appendChild(page);
+
+      translator.processText(p, 'Submit');
+
+      expect(p.textContent).toBe('Finalizar compra');
+    });
+
+    it('should include scope in enqueued TranslationItem', () => {
+      const { translator, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const section = document.createElement('section');
+      section.setAttribute('data-i18n-scope', 'checkout');
+      const p = document.createElement('p');
+      p.textContent = 'Submit';
+      section.appendChild(p);
+      root.appendChild(section);
+
+      translator.processText(p, 'Submit');
+
+      expect(enqueueSpy).toHaveBeenCalledTimes(1);
+      expect(enqueueSpy.mock.calls[0]![0].scope).toBe('checkout');
+    });
+
+    it('should not include scope when element has no scope ancestor', () => {
+      const { translator, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      const p = document.createElement('p');
+      p.textContent = 'Hello';
+      root.appendChild(p);
+
+      translator.processText(p, 'Hello');
+
+      expect(enqueueSpy).toHaveBeenCalledTimes(1);
+      expect(enqueueSpy.mock.calls[0]![0].scope).toBeUndefined();
+    });
+
+    it('should resolve scope per-node in applyPending', () => {
+      const { translator, store } = createDeps();
+
+      const section1 = document.createElement('section');
+      section1.setAttribute('data-i18n-scope', 'checkout');
+      const p1 = document.createElement('p');
+      p1.textContent = 'Submit';
+      section1.appendChild(p1);
+      root.appendChild(section1);
+
+      const section2 = document.createElement('section');
+      section2.setAttribute('data-i18n-scope', 'settings');
+      const p2 = document.createElement('p');
+      p2.textContent = 'Submit';
+      section2.appendChild(p2);
+      root.appendChild(section2);
+
+      translator.processText(p1, 'Submit');
+      translator.processText(p2, 'Submit');
+
+      store.set('es', 'Submit', { checkout: 'Finalizar compra', settings: 'Guardar' });
+      translator.applyPending('Submit');
+
+      expect(p1.textContent).toBe('Finalizar compra');
+      expect(p2.textContent).toBe('Guardar');
+    });
+
+    it('should resolve scope for attribute translations', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Enter name', { form: 'Ingrese nombre', search: 'Buscar nombre' });
+
+      const section = document.createElement('section');
+      section.setAttribute('data-i18n-scope', 'form');
+      const input = document.createElement('input');
+      input.setAttribute('placeholder', 'Enter name');
+      section.appendChild(input);
+      root.appendChild(section);
+
+      translator.processAttribute(input, 'placeholder', 'Enter name');
+
+      expect(input.getAttribute('placeholder')).toBe('Ingrese nombre');
+    });
+
+    it('should resolve scope in retranslateAll', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Submit', 'Enviar');
+
+      const section = document.createElement('section');
+      section.setAttribute('data-i18n-scope', 'checkout');
+      const p = document.createElement('p');
+      p.textContent = 'Submit';
+      section.appendChild(p);
+      root.appendChild(section);
+
+      translator.processText(p, 'Submit');
+      expect(p.textContent).toBe('Enviar');
+
+      // Now change to scoped entry
+      store.set('es', 'Submit', { checkout: 'Finalizar compra' });
+      translator.retranslateAll();
+
+      expect(p.textContent).toBe('Finalizar compra');
     });
   });
 

@@ -17,6 +17,7 @@ const DEFAULTS = {
   pendingAttribute: 'data-i18n-pending',
   keyAttribute: 'data-i18n-key',
   ignoreAttribute: 'data-i18n-ignore',
+  scopeAttribute: 'data-i18n-scope',
   debug: false,
 };
 
@@ -43,6 +44,7 @@ export class I18nObserver {
       pendingAttribute: userConfig.pendingAttribute ?? DEFAULTS.pendingAttribute,
       keyAttribute: userConfig.keyAttribute ?? DEFAULTS.keyAttribute,
       ignoreAttribute: userConfig.ignoreAttribute ?? DEFAULTS.ignoreAttribute,
+      scopeAttribute: userConfig.scopeAttribute ?? DEFAULTS.scopeAttribute,
       debug: userConfig.debug ?? DEFAULTS.debug,
       locale: userConfig.locale,
       onMissingTranslation: userConfig.onMissingTranslation,
@@ -67,6 +69,7 @@ export class I18nObserver {
         originalAttribute: config.originalAttribute,
         pendingAttribute: config.pendingAttribute,
         keyAttribute: config.keyAttribute,
+        scopeAttribute: config.scopeAttribute,
         translatableAttributes: config.translatableAttributes,
         onMissingTranslation: config.onMissingTranslation,
         debug: config.debug,
@@ -90,6 +93,7 @@ export class I18nObserver {
         originalAttribute: config.originalAttribute,
         pendingAttribute: config.pendingAttribute,
         keyAttribute: config.keyAttribute,
+        scopeAttribute: config.scopeAttribute,
         translatableAttributes: config.translatableAttributes,
         onMissingTranslation: config.onMissingTranslation,
         debug: config.debug,
@@ -137,13 +141,17 @@ export class I18nObserver {
     return undefined;
   }
 
-  translate(text: string, variables?: string[]): string {
+  translate(text: string, variables?: string[], scope?: string): string {
     // `text` is a pre-masked key like "Hello {{0}}" — look it up directly
     const entry = this.store.get(this.currentLocale, text);
 
     let translated: string;
     if (entry && entry.status === 'resolved' && entry.value !== null) {
-      translated = entry.value;
+      if (typeof entry.value === 'string') {
+        translated = entry.value;
+      } else {
+        translated = (scope && entry.value[scope]) ?? text;
+      }
     } else {
       translated = text;
     }

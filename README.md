@@ -18,6 +18,7 @@ It features **Smart Masking**, **Inline Tag Support**, and **ICU MessageFormat**
 - [Programmatic API](#-programmatic-api)
 - [How It Works](#-how-it-works)
 - [ICU MessageFormat](#-icu-messageformat)
+- [Scoped Translations](#-scoped-translations)
 - [Browser Support](#-browser-support)
 - [Performance](#-performance)
 - [Security](#-security)
@@ -95,7 +96,7 @@ The `I18nObserver` constructor accepts a config object with the following proper
 | `translatableAttributes` | `string[]` | `['title', 'placeholder', 'alt', 'aria-label']` | HTML attributes to translate alongside text nodes. |
 | `ignoreSelectors` | `string[]` | `['script', 'style', 'code']` | CSS selectors to ignore. Content inside these elements will never be observed or translated. |
 | `ignoreWords` | `IgnoreWordEntry[]` | `[]` | Proper nouns or terms to treat as variables. Each entry can be a plain string (e.g., `'Google'`) or an object with metadata (e.g., `{ word: 'Mary', meta: { gender: 'female' } }`). Metadata is passed to ICU MessageFormat evaluation as `{N_key}` arguments. |
-| `initialCache` | `object` | `{}` | A dictionary of pre-loaded translations keyed by masked string (e.g., `{ "Hello {{0}}": "Hola {{0}}" }`). Values can be plain strings or ICU MessageFormat patterns. |
+| `initialCache` | `object` | `{}` | A dictionary of pre-loaded translations keyed by masked string (e.g., `{ "Hello {{0}}": "Hola {{0}}" }`). Values can be plain strings, ICU MessageFormat patterns, or scope-keyed objects (see [Scoped Translations](#-scoped-translations)). |
 | `rootElement` | `HTMLElement` | `document.body` | The DOM element to observe. Use this to scope translation to a specific subtree. |
 | `debounceTime` | `number` | `200` | Time in ms to wait before batching requests. |
 | `maxBatchSize` | `number` | `50` | Maximum number of strings per request. |
@@ -103,6 +104,7 @@ The `I18nObserver` constructor accepts a config object with the following proper
 | `pendingAttribute` | `string` | `'data-i18n-pending'` | The attribute name added to elements while a translation is in-flight. |
 | `keyAttribute` | `string` | `'data-i18n-key'` | If this attribute is present on an element, its value is used as the cache key instead of the computed masked string. |
 | `ignoreAttribute` | `string` | `'data-i18n-ignore'` | The attribute name that marks an element (and its entire subtree) to be completely skipped by the observer. |
+| `scopeAttribute` | `string` | `'data-i18n-scope'` | The attribute name used to define a translation scope. Scopes inherit down the DOM tree. See [Scoped Translations](#-scoped-translations). |
 | `debug` | `boolean` | `false` | When enabled, each item in `onMissingTranslation` includes a `debug` field with DOM context for bug reporting. See [Debugging](#-debugging). |
 
 ### The `onMissingTranslation` Item Object
@@ -114,6 +116,7 @@ The `items` array passed to your callback contains objects with this structure:
   masked: string;            // "Hello <b0>{{0}}</b0>" (The Cache Key)
   original: string;          // "Hello <b>Mary</b>" (For LLM Context)
   variables: VariableInfo[]; // [{ value: "Mary", type: "ignoreWord", meta: { gender: "female" } }]
+  scope?: string;            // "checkout" (From nearest data-i18n-scope ancestor)
   debug?: {                  // Only present when debug: true
     elementOpenTag: string;    // '<p class="greeting">'
     childElements: Array<{ tag: string; classes: string }>;
@@ -174,6 +177,20 @@ For cases where simple substitution isn't enough (e.g., words with identical sin
 
 In ICU responses, use `{N}` (single braces) instead of `{{N}}` (double braces). The library auto-detects the format. Variable metadata from `ignoreWords` is available as `{N_key}` arguments (e.g., `{0_gender}`). Numbers are automatically parsed for proper plural rule evaluation.
 
+**Scoped Response:**
+When elements use `data-i18n-scope`, the `scope` field is included in the request items. The backend can return a scope-keyed object instead of a plain string. A string response works for all scopes; an object response maps each scope to its translation:
+
+```json
+{
+  "Submit": {
+    "checkout": "Finalizar compra",
+    "settings": "Guardar cambios"
+  }
+}
+```
+
+See [Scoped Translations](#-scoped-translations) for details.
+
 **Important Implementation Notes:**
 1.  **Preserve Variables:** Your translation logic must preserve the `{{0}}`, `{{1}}` placeholders in the output string (or use `{0}`, `{1}` for ICU format).
 2.  **Preserve Tags:** If the input contains `<b0>...</b0>`, the output must also contain `<b0>...</b0>` wrapping the corresponding translated text.
@@ -214,15 +231,17 @@ Retrieves the translation string from the cache. Returns `undefined` if the key 
 const translation = i18n.getTranslation("Save", "es"); // "Guardar"
 ```
 
-### `translate(text, variables?)`
+### `translate(text, variables?, scope?)`
 
 Imperatively translate a string using the current locale. Returns the original text (with variables substituted) if no translation is found.
 
 * `text`: The string to translate (e.g. "Hello {{0}}")
 * `variables`: *(Optional)* Array of strings to replace placeholders (e.g. `["World"]`)
+* `scope`: *(Optional)* Scope name to use when the cached entry is a scope-keyed object
 
 ```javascript
 const text = i18n.translate("Welcome {{0}}", ["John"]); // "Bienvenido John"
+const scoped = i18n.translate("Submit", undefined, "checkout"); // "Finalizar compra"
 ```
 
 ### `setLocale(locale)`
@@ -304,6 +323,7 @@ The library uses three data attributes during translation (all configurable via 
 2.  **`data-i18n-pending`:** Added to elements while a translation request is in-flight. Removed once the translation is applied. Use this for CSS-based FOUC mitigation (e.g., `[data-i18n-pending] { visibility: hidden; }`).
 3.  **`data-i18n-key`:** *(Optional, user-provided)* If present on an element, its value is used as the cache key instead of the computed masked string. This is useful when automatic masking produces an ambiguous key, or when you want to share a translation across elements with different source text.
 4.  **`data-i18n-ignore`:** *(Optional, user-provided)* If present on an element, the observer will completely skip that element and its entire subtree — no text, attributes, or mutations will be processed. Useful for excluding regions that contain sensitive data, code snippets, or content that should never be translated.
+5.  **`data-i18n-scope`:** *(Optional, user-provided)* Defines a translation scope that inherits down the DOM tree. When the same masked string needs different translations in different parts of the page, use this attribute to disambiguate. See [Scoped Translations](#-scoped-translations).
 
 **Example:**
 
@@ -402,6 +422,72 @@ const i18n = new I18nObserver({
 ```
 
 **Result:** `Mary a acheté 5 moutons`
+
+---
+
+## 🏷 Scoped Translations
+
+Sometimes the same English text needs different translations depending on where it appears. For example, "Submit" on a checkout page might translate to "Finalizar compra", while the same word on a settings page might translate to "Guardar cambios". Scopes solve this without requiring manual `data-i18n-key` overrides on every element.
+
+### Usage
+
+Add `data-i18n-scope` to any ancestor element. All translatable elements within that subtree inherit the scope:
+
+```html
+<section data-i18n-scope="checkout">
+  <h1>Your Order</h1>
+  <button>Submit</button>  <!-- scope: "checkout" -->
+</section>
+
+<section data-i18n-scope="settings">
+  <h1>Preferences</h1>
+  <button>Submit</button>  <!-- scope: "settings" -->
+</section>
+```
+
+### How It Works
+
+1. When the library encounters a translatable element, it walks up the DOM tree looking for the nearest `data-i18n-scope` attribute.
+2. If a scope is found, it's included in the `TranslationItem.scope` field sent to `onMissingTranslation`.
+3. The backend can return either:
+   - **A plain string** — used for all scopes (and unscoped elements). This is the default behavior and is fully backward compatible.
+   - **A scope-keyed object** — each key is a scope name, and the value is the translation for that scope.
+
+### Response Format
+
+**Unscoped (string):** Works for any element regardless of scope.
+```json
+{ "Your Order": "Tu pedido" }
+```
+
+**Scoped (object):** Different translations per scope.
+```json
+{ "Submit": { "checkout": "Finalizar compra", "settings": "Guardar cambios" } }
+```
+
+### Resolution Rules
+
+| Entry Type | Element Has Scope | Result |
+| :--- | :--- | :--- |
+| String | Yes or No | Uses the string |
+| Object | Yes, matching key | Uses the matching scope's value |
+| Object | Yes, no matching key | Not translated (stays pending) |
+| Object | No | Not translated (stays pending) |
+
+### Pre-loading Scoped Translations
+
+Scoped entries work with `initialCache` and `setTranslation()`:
+
+```javascript
+const i18n = new I18nObserver({
+  locale: 'es',
+  initialCache: {
+    'Submit': { checkout: 'Finalizar compra', settings: 'Guardar cambios' },
+    'Hello': 'Hola',  // Unscoped — works everywhere
+  },
+  onMissingTranslation: async (items, locale) => { /* ... */ },
+});
+```
 
 ---
 

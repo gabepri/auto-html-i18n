@@ -1,7 +1,10 @@
 // ---- Translation Types ----
 
-/** A translation is a simple string or an ICU MessageFormat pattern */
-export type TranslationEntry = string;
+/** Maps scope names to translated strings */
+export type ScopedTranslation = Record<string, string>;
+
+/** A translation can be a plain string or a scope-keyed object */
+export type TranslationEntry = string | ScopedTranslation;
 
 /** DOM context included when debug mode is enabled */
 export interface TranslationItemDebug {
@@ -25,6 +28,7 @@ export interface TranslationItem {
   masked: string;
   original: string;
   variables: VariableInfo[];
+  scope?: string;
   debug?: TranslationItemDebug;
 }
 
@@ -51,6 +55,7 @@ export interface I18nConfig {
   pendingAttribute?: string;
   keyAttribute?: string;
   ignoreAttribute?: string;
+  scopeAttribute?: string;
   debug?: boolean;
 }
 

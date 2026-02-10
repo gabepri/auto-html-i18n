@@ -321,6 +321,68 @@ describe('I18nObserver', () => {
     });
   });
 
+  describe('scope support', () => {
+    it('should resolve scoped initialCache on start()', () => {
+      root.innerHTML = '<section data-i18n-scope="checkout"><p>Submit</p></section>';
+      const i18n = new I18nObserver(createConfig({
+        initialCache: { 'Submit': { checkout: 'Finalizar compra', settings: 'Guardar' } },
+        rootElement: root,
+      }));
+
+      i18n.start();
+
+      expect(root.querySelector('p')?.textContent).toBe('Finalizar compra');
+
+      i18n.stop();
+    });
+
+    it('should use string entry for any scope', () => {
+      root.innerHTML = '<section data-i18n-scope="checkout"><p>Hello</p></section>';
+      const i18n = new I18nObserver(createConfig({
+        initialCache: { 'Hello': 'Hola' },
+        rootElement: root,
+      }));
+
+      i18n.start();
+
+      expect(root.querySelector('p')?.textContent).toBe('Hola');
+
+      i18n.stop();
+    });
+
+    it('should store and retrieve scoped translation via setTranslation', () => {
+      const i18n = new I18nObserver(createConfig());
+      i18n.setTranslation('es', { 'Submit': { checkout: 'Finalizar compra' } });
+
+      expect(i18n.getTranslation('Submit')).toEqual({ checkout: 'Finalizar compra' });
+    });
+
+    it('should resolve scope in translate() with scope parameter', () => {
+      const i18n = new I18nObserver(createConfig({
+        initialCache: { 'Submit': { checkout: 'Finalizar compra', settings: 'Guardar' } },
+      }));
+
+      expect(i18n.translate('Submit', undefined, 'checkout')).toBe('Finalizar compra');
+      expect(i18n.translate('Submit', undefined, 'settings')).toBe('Guardar');
+    });
+
+    it('should fall back to original text in translate() when scope not in Record', () => {
+      const i18n = new I18nObserver(createConfig({
+        initialCache: { 'Submit': { checkout: 'Finalizar compra' } },
+      }));
+
+      expect(i18n.translate('Submit', undefined, 'unknown')).toBe('Submit');
+    });
+
+    it('should use string entry in translate() regardless of scope', () => {
+      const i18n = new I18nObserver(createConfig({
+        initialCache: { 'Hello': 'Hola' },
+      }));
+
+      expect(i18n.translate('Hello', undefined, 'checkout')).toBe('Hola');
+    });
+  });
+
   describe('getCache() / clearCache()', () => {
     it('should return cache snapshot', () => {
       const i18n = new I18nObserver(createConfig({

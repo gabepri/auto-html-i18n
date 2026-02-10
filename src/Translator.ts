@@ -1,4 +1,4 @@
-import type { CasePattern, TranslationItem, TranslationItemDebug, OnMissingTranslationCallback, MaskResult, VariableInfo } from './types';
+import type { CasePattern, TranslationEntry, TranslationItem, TranslationItemDebug, OnMissingTranslationCallback, MaskResult, VariableInfo } from './types';
 import { Store } from './Store';
 import { Queue } from './Queue';
 import { Masker } from './Masker';
@@ -8,6 +8,7 @@ export interface TranslatorConfig {
   originalAttribute: string;
   pendingAttribute: string;
   keyAttribute: string;
+  scopeAttribute: string;
   translatableAttributes: string[];
   onMissingTranslation: OnMissingTranslationCallback;
   debug: boolean;
@@ -24,6 +25,7 @@ interface PendingNode {
   isAttribute?: boolean;
   attrName?: string;
   isHtml: boolean;
+  scope?: string;
 }
 
 export class Translator {
@@ -56,26 +58,30 @@ export class Translator {
     }
 
     const cacheKey = keyOverride ?? maskResult.masked;
+    const scope = this.resolveScope(element);
 
     const entry = this.store.get(this.config.locale, cacheKey);
 
     if (entry && entry.status === 'resolved' && entry.value !== null) {
-      this.applyTranslation(element, entry.value, maskResult, originalText, isHtml, maskResult.casePattern);
+      const resolved = resolveEntry(entry.value, scope);
+      if (resolved) {
+        this.applyTranslation(element, resolved, maskResult, originalText, isHtml, maskResult.casePattern);
+      }
       return;
     }
 
     // Build item before mutating the element so debug info captures original state
-    const item = this.buildItem(cacheKey, originalText, maskResult.variables, element, 'text');
+    const item = this.buildItem(cacheKey, originalText, maskResult.variables, element, 'text', scope);
 
     element.setAttribute(this.config.pendingAttribute, '');
 
     if (entry && (entry.status === 'pending' || entry.status === 'reported')) {
-      this.trackPendingNode(cacheKey, element, maskResult, originalText, isHtml);
+      this.trackPendingNode(cacheKey, element, maskResult, originalText, isHtml, scope);
       return;
     }
 
     this.store.markPending(this.config.locale, cacheKey);
-    this.trackPendingNode(cacheKey, element, maskResult, originalText, isHtml);
+    this.trackPendingNode(cacheKey, element, maskResult, originalText, isHtml, scope);
     this.queue.enqueue(item);
   }
 
@@ -94,21 +100,25 @@ export class Translator {
     }
 
     const cacheKey = maskResult.masked;
+    const scope = this.resolveScope(element);
 
     const entry = this.store.get(this.config.locale, cacheKey);
 
     if (entry && entry.status === 'resolved' && entry.value !== null) {
-      const unmasked = this.masker.unmask(entry.value, maskResult.variables, maskResult.tagAttributes, this.config.locale);
-      const output = this.masker.applyCasePattern(unmasked, maskResult.casePattern);
-      element.setAttribute(attr, maskResult.leadingWhitespace + output + maskResult.trailingWhitespace);
-      element.setAttribute(originalAttrName, originalValue);
+      const resolved = resolveEntry(entry.value, scope);
+      if (resolved) {
+        const unmasked = this.masker.unmask(resolved, maskResult.variables, maskResult.tagAttributes, this.config.locale);
+        const output = this.masker.applyCasePattern(unmasked, maskResult.casePattern);
+        element.setAttribute(attr, maskResult.leadingWhitespace + output + maskResult.trailingWhitespace);
+        element.setAttribute(originalAttrName, originalValue);
+      }
       return;
     }
 
     if (!entry) {
       this.store.markPending(this.config.locale, cacheKey);
       this.queue.enqueue(
-        this.buildItem(cacheKey, originalValue, maskResult.variables, element, `attribute:${attr}`)
+        this.buildItem(cacheKey, originalValue, maskResult.variables, element, `attribute:${attr}`, scope)
       );
     }
 
@@ -123,6 +133,7 @@ export class Translator {
       isAttribute: true,
       attrName: attr,
       isHtml: false,
+      scope,
     };
     this.addToPendingSet(cacheKey, pendingNode);
   }
@@ -137,14 +148,17 @@ export class Translator {
     for (const node of pending) {
       if (!node.element.isConnected) continue;
 
+      const resolved = resolveEntry(entry.value, node.scope);
+      if (!resolved) continue;
+
       if (node.isAttribute && node.attrName) {
-        const unmasked = this.masker.unmask(entry.value, node.variables, node.tagAttributes, this.config.locale);
+        const unmasked = this.masker.unmask(resolved, node.variables, node.tagAttributes, this.config.locale);
         const output = this.masker.applyCasePattern(unmasked, node.casePattern);
         node.element.setAttribute(node.attrName, node.leadingWhitespace + output + node.trailingWhitespace);
         const originalAttrName = `${this.config.originalAttribute}-${node.attrName}`;
         node.element.setAttribute(originalAttrName, node.originalText);
       } else {
-        this.applyTranslation(node.element, entry.value, {
+        this.applyTranslation(node.element, resolved, {
           masked: cacheKey,
           variables: node.variables,
           tagAttributes: node.tagAttributes,
@@ -175,15 +189,19 @@ export class Translator {
       }
 
       const cacheKey = keyOverride ?? maskResult.masked;
+      const scope = this.resolveScope(element);
 
       const entry = this.store.get(this.config.locale, cacheKey);
       if (entry && entry.status === 'resolved' && entry.value !== null) {
-        this.applyTranslation(element, entry.value, maskResult, originalText, isHtml, maskResult.casePattern);
+        const resolved = resolveEntry(entry.value, scope);
+        if (resolved) {
+          this.applyTranslation(element, resolved, maskResult, originalText, isHtml, maskResult.casePattern);
+        }
       } else if (!entry) {
-        const item = this.buildItem(cacheKey, originalText, maskResult.variables, element, 'text');
+        const item = this.buildItem(cacheKey, originalText, maskResult.variables, element, 'text', scope);
         element.setAttribute(this.config.pendingAttribute, '');
         this.store.markPending(this.config.locale, cacheKey);
-        this.trackPendingNode(cacheKey, element, maskResult, originalText, isHtml);
+        this.trackPendingNode(cacheKey, element, maskResult, originalText, isHtml, scope);
         this.queue.enqueue(item);
       }
     }
@@ -201,14 +219,18 @@ export class Translator {
         if (!hasTranslatableContent(maskResult.masked)) continue;
 
         const cacheKey = maskResult.masked;
+        const scope = this.resolveScope(element);
         const entry = this.store.get(this.config.locale, cacheKey);
 
         if (entry && entry.status === 'resolved' && entry.value !== null) {
-          const unmasked = this.masker.unmask(entry.value, maskResult.variables, maskResult.tagAttributes, this.config.locale);
-          const output = this.masker.applyCasePattern(unmasked, maskResult.casePattern);
-          element.setAttribute(attr, maskResult.leadingWhitespace + output + maskResult.trailingWhitespace);
+          const resolved = resolveEntry(entry.value, scope);
+          if (resolved) {
+            const unmasked = this.masker.unmask(resolved, maskResult.variables, maskResult.tagAttributes, this.config.locale);
+            const output = this.masker.applyCasePattern(unmasked, maskResult.casePattern);
+            element.setAttribute(attr, maskResult.leadingWhitespace + output + maskResult.trailingWhitespace);
+          }
         } else if (!entry) {
-          const item = this.buildItem(cacheKey, originalValue, maskResult.variables, element, `attribute:${attr}`);
+          const item = this.buildItem(cacheKey, originalValue, maskResult.variables, element, `attribute:${attr}`, scope);
           this.store.markPending(this.config.locale, cacheKey);
           const pendingNode: PendingNode = {
             element,
@@ -221,6 +243,7 @@ export class Translator {
             isAttribute: true,
             attrName: attr,
             isHtml: false,
+            scope,
           };
           this.addToPendingSet(cacheKey, pendingNode);
           this.queue.enqueue(item);
@@ -235,6 +258,16 @@ export class Translator {
 
   get locale(): string {
     return this.config.locale;
+  }
+
+  private resolveScope(element: Element): string | undefined {
+    let current: Element | null = element;
+    while (current) {
+      const scope = current.getAttribute(this.config.scopeAttribute);
+      if (scope) return scope;
+      current = current.parentElement;
+    }
+    return undefined;
   }
 
   private applyTranslation(
@@ -263,7 +296,8 @@ export class Translator {
     element: Element,
     maskResult: MaskResult,
     originalText: string,
-    isHtml: boolean
+    isHtml: boolean,
+    scope?: string
   ): void {
     this.addToPendingSet(cacheKey, {
       element,
@@ -274,6 +308,7 @@ export class Translator {
       trailingWhitespace: maskResult.trailingWhitespace,
       originalText,
       isHtml,
+      scope,
     });
   }
 
@@ -291,13 +326,17 @@ export class Translator {
     originalText: string,
     variables: VariableInfo[],
     element: Element,
-    source: TranslationItemDebug['source']
+    source: TranslationItemDebug['source'],
+    scope?: string
   ): TranslationItem {
     const item: TranslationItem = {
       masked: cacheKey,
       original: originalText,
       variables,
     };
+    if (scope) {
+      item.scope = scope;
+    }
     if (this.config.debug) {
       item.debug = this.collectDebugInfo(element, source);
     }
@@ -329,4 +368,11 @@ export class Translator {
 function hasTranslatableContent(masked: string): boolean {
   const stripped = masked.replace(/\{\{\d+\}\}/g, '').replace(/<[^>]*>/g, '');
   return /\p{L}/u.test(stripped);
+}
+
+/** Resolves a TranslationEntry to a string given an optional scope. */
+function resolveEntry(value: TranslationEntry, scope?: string): string | undefined {
+  if (typeof value === 'string') return value;
+  if (scope && scope in value) return value[scope];
+  return undefined;
 }

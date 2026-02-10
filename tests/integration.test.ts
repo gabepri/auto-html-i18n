@@ -587,6 +587,103 @@ describe('Integration Tests', () => {
     });
   });
 
+  describe('scope support', () => {
+    it('should translate elements in different scopes with different translations', async () => {
+      const onMissing = vi.fn().mockResolvedValue({
+        'Submit': { checkout: 'Finalizar compra', settings: 'Guardar' },
+      });
+
+      root.innerHTML = `
+        <section data-i18n-scope="checkout"><p>Submit</p></section>
+        <section data-i18n-scope="settings"><p>Submit</p></section>
+      `;
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        rootElement: root,
+      });
+
+      i18n.start();
+      await flushDebounce();
+
+      const ps = root.querySelectorAll('p');
+      expect(ps[0]!.textContent).toBe('Finalizar compra');
+      expect(ps[1]!.textContent).toBe('Guardar');
+
+      i18n.stop();
+    });
+
+    it('should use string response for all scopes', async () => {
+      const onMissing = vi.fn().mockResolvedValue({
+        'Hello': 'Hola',
+      });
+
+      root.innerHTML = `
+        <section data-i18n-scope="checkout"><p>Hello</p></section>
+        <div><p>Hello</p></div>
+      `;
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        rootElement: root,
+      });
+
+      i18n.start();
+      await flushDebounce();
+
+      const ps = root.querySelectorAll('p');
+      expect(ps[0]!.textContent).toBe('Hola');
+      expect(ps[1]!.textContent).toBe('Hola');
+
+      i18n.stop();
+    });
+
+    it('should include scope in onMissingTranslation items', async () => {
+      const onMissing = vi.fn().mockResolvedValue({ 'Submit': 'Enviar' });
+
+      root.innerHTML = '<section data-i18n-scope="checkout"><p>Submit</p></section>';
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        rootElement: root,
+      });
+
+      i18n.start();
+      await flushDebounce();
+
+      expect(onMissing).toHaveBeenCalledTimes(1);
+      const item = onMissing.mock.calls[0]![0][0]!;
+      expect(item.scope).toBe('checkout');
+
+      i18n.stop();
+    });
+
+    it('should work with scoped initialCache', () => {
+      root.innerHTML = `
+        <section data-i18n-scope="checkout"><p>Submit</p></section>
+        <section data-i18n-scope="settings"><p>Submit</p></section>
+      `;
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: vi.fn().mockResolvedValue(null),
+        initialCache: { 'Submit': { checkout: 'Finalizar compra', settings: 'Guardar' } },
+        rootElement: root,
+      });
+
+      i18n.start();
+
+      const ps = root.querySelectorAll('p');
+      expect(ps[0]!.textContent).toBe('Finalizar compra');
+      expect(ps[1]!.textContent).toBe('Guardar');
+
+      i18n.stop();
+    });
+  });
+
   describe('batch size enforcement', () => {
     it('should split large batches according to maxBatchSize', async () => {
       const onMissing = vi.fn().mockResolvedValue({});

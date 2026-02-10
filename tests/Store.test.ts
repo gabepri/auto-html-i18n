@@ -166,6 +166,38 @@ describe('Store', () => {
     });
   });
 
+  describe('scoped translation entries', () => {
+    it('should store and retrieve a scoped translation object', () => {
+      const store = createStore();
+      store.set('es', 'Submit', { checkout: 'Finalizar compra', settings: 'Guardar' });
+      const entry = store.get('es', 'Submit');
+      expect(entry).toBeDefined();
+      expect(entry!.value).toEqual({ checkout: 'Finalizar compra', settings: 'Guardar' });
+      expect(entry!.status).toBe('resolved');
+    });
+
+    it('should include scoped entries in getCache', () => {
+      const store = createStore();
+      store.set('es', 'Submit', { checkout: 'Finalizar compra' });
+      store.set('es', 'Hello', 'Hola');
+      const cache = store.getCache('es');
+      expect(cache).toEqual({
+        Submit: { checkout: 'Finalizar compra' },
+        Hello: 'Hola',
+      });
+    });
+
+    it('should load scoped entries via loadBulk', () => {
+      const store = createStore();
+      store.loadBulk('es', {
+        Submit: { checkout: 'Finalizar compra', settings: 'Guardar' },
+        Hello: 'Hola',
+      });
+      expect(store.get('es', 'Submit')!.value).toEqual({ checkout: 'Finalizar compra', settings: 'Guardar' });
+      expect(store.get('es', 'Hello')!.value).toBe('Hola');
+    });
+  });
+
   describe('loadBulk()', () => {
     it('should load multiple entries at once', () => {
       const store = createStore();
