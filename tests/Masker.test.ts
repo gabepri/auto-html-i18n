@@ -424,12 +424,14 @@ describe('Masker', () => {
       ]);
     });
 
-    it('should include metadata from object entries in getIgnoreWords result words', () => {
+    it('should preserve metadata in getIgnoreWords result', () => {
       const masker = createMasker({
         ignoreWords: [{ word: 'Mary', meta: { gender: 'female' } }, 'Google'],
       });
-      // getIgnoreWords returns just the word strings
-      expect(masker.getIgnoreWords()).toEqual(expect.arrayContaining(['Mary', 'Google']));
+      expect(masker.getIgnoreWords()).toEqual(expect.arrayContaining([
+        { word: 'Mary', meta: { gender: 'female' } },
+        'Google',
+      ]));
       expect(masker.getIgnoreWords()).toHaveLength(2);
     });
 
@@ -910,6 +912,25 @@ describe('Masker', () => {
         const masker = createMasker({ ignoreWords: ['Al', 'Alice', 'A'] });
         expect(masker.getIgnoreWords()).toEqual(['Alice', 'Al', 'A']);
       });
+
+      it('should preserve metadata in entries that have it', () => {
+        const masker = createMasker({
+          ignoreWords: [{ word: 'Mary', meta: { gender: 'female' } }, 'Bob'],
+        });
+        expect(masker.getIgnoreWords()).toEqual([
+          { word: 'Mary', meta: { gender: 'female' } },
+          'Bob',
+        ]);
+      });
+
+      it('should round-trip through setIgnoreWords without losing metadata', () => {
+        const masker = createMasker({
+          ignoreWords: [{ word: 'Mary', meta: { gender: 'female' } }, 'Bob'],
+        });
+        masker.setIgnoreWords(masker.getIgnoreWords());
+        const result = masker.mask('Hello Mary');
+        expect(result.variables).toEqual([v('Mary', 'ignoreWord', { gender: 'female' })]);
+      });
     });
 
     describe('addIgnoreWords()', () => {
@@ -955,6 +976,37 @@ describe('Masker', () => {
         expect(result.masked).toBe('Hello {{0}}');
         expect(result.variables).toEqual([v('John Doe', 'ignoreWord')]);
       });
+
+      it('should handle object entries with metadata', () => {
+        const masker = createMasker({ ignoreWords: [] });
+        masker.addIgnoreWords({ word: 'Mary', meta: { gender: 'female' } });
+        const result = masker.mask('Hello Mary');
+        expect(result.masked).toBe('Hello {{0}}');
+        expect(result.variables).toEqual([v('Mary', 'ignoreWord', { gender: 'female' })]);
+      });
+
+      it('should handle mixed string and object entries', () => {
+        const masker = createMasker({ ignoreWords: [] });
+        masker.addIgnoreWords('Alice', { word: 'Bob', meta: { gender: 'male' } });
+        const aliceResult = masker.mask('Hello Alice');
+        expect(aliceResult.variables).toEqual([v('Alice', 'ignoreWord')]);
+        const bobResult = masker.mask('Hello Bob');
+        expect(bobResult.variables).toEqual([v('Bob', 'ignoreWord', { gender: 'male' })]);
+      });
+
+      it('should deduplicate object entries by word', () => {
+        const masker = createMasker({ ignoreWords: ['Alice'] });
+        masker.addIgnoreWords({ word: 'Alice', meta: { gender: 'female' } });
+        expect(masker.getIgnoreWords()).toEqual(['Alice']);
+      });
+
+      it('should not overwrite existing entry when adding duplicate with metadata', () => {
+        const masker = createMasker({ ignoreWords: ['Mary'] });
+        masker.addIgnoreWords({ word: 'Mary', meta: { gender: 'female' } });
+        // Original entry has no metadata; duplicate is silently skipped
+        const result = masker.mask('Hello Mary');
+        expect(result.variables).toEqual([v('Mary', 'ignoreWord')]);
+      });
     });
 
     describe('removeIgnoreWords()', () => {
@@ -983,6 +1035,23 @@ describe('Masker', () => {
         masker.removeIgnoreWords('Al');
         expect(masker.getIgnoreWords()).toEqual(['Alice', 'A']);
       });
+
+      it('should handle object entries for removal', () => {
+        const masker = createMasker({
+          ignoreWords: [{ word: 'Mary', meta: { gender: 'female' } }],
+        });
+        expect(masker.mask('Hello Mary').masked).toBe('Hello {{0}}');
+        masker.removeIgnoreWords({ word: 'Mary', meta: { gender: 'female' } });
+        expect(masker.mask('Hello Mary').masked).toBe('Hello Mary');
+      });
+
+      it('should handle mixed string and object entries for removal', () => {
+        const masker = createMasker({
+          ignoreWords: ['Alice', { word: 'Bob', meta: { gender: 'male' } }],
+        });
+        masker.removeIgnoreWords('Alice', { word: 'Bob' });
+        expect(masker.getIgnoreWords()).toEqual([]);
+      });
     });
 
     describe('setIgnoreWords()', () => {
@@ -1005,6 +1074,25 @@ describe('Masker', () => {
         masker.setIgnoreWords([]);
         expect(masker.getIgnoreWords()).toEqual([]);
         expect(masker.mask('Hello Alice').masked).toBe('Hello Alice');
+      });
+
+      it('should handle object entries with metadata', () => {
+        const masker = createMasker({ ignoreWords: ['Alice'] });
+        masker.setIgnoreWords([{ word: 'Mary', meta: { gender: 'female' } }]);
+        const result = masker.mask('Hello Mary');
+        expect(result.masked).toBe('Hello {{0}}');
+        expect(result.variables).toEqual([v('Mary', 'ignoreWord', { gender: 'female' })]);
+      });
+
+      it('should handle mixed string and object entries', () => {
+        const masker = createMasker();
+        masker.setIgnoreWords(['Alice', { word: 'Bob', meta: { gender: 'male' } }]);
+        expect(masker.getIgnoreWords()).toEqual([
+          'Alice',
+          { word: 'Bob', meta: { gender: 'male' } },
+        ]);
+        const result = masker.mask('Hello Bob');
+        expect(result.variables).toEqual([v('Bob', 'ignoreWord', { gender: 'male' })]);
       });
     });
   });

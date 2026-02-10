@@ -173,16 +173,16 @@ export class I18nObserver {
     this.translator.retranslateAll();
   }
 
-  getIgnoreWords(): string[] {
+  getIgnoreWords(): IgnoreWordEntry[] {
     return this.masker.getIgnoreWords();
   }
 
-  addIgnoreWords(...words: string[]): void {
+  addIgnoreWords(...words: IgnoreWordEntry[]): void {
     this.masker.addIgnoreWords(...words);
     this.translator.retranslateAll();
   }
 
-  removeIgnoreWords(...words: string[]): void {
+  removeIgnoreWords(...words: IgnoreWordEntry[]): void {
     this.masker.removeIgnoreWords(...words);
     this.translator.retranslateAll();
   }

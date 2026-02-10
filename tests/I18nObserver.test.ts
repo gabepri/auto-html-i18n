@@ -270,7 +270,10 @@ describe('I18nObserver', () => {
         const i18n = new I18nObserver(createConfig({
           ignoreWords: [{ word: 'Mary', meta: { gender: 'female' } }, 'Google'],
         }));
-        expect(i18n.getIgnoreWords()).toEqual(expect.arrayContaining(['Mary', 'Google']));
+        expect(i18n.getIgnoreWords()).toEqual(expect.arrayContaining([
+          { word: 'Mary', meta: { gender: 'female' } },
+          'Google',
+        ]));
         expect(i18n.getIgnoreWords()).toHaveLength(2);
       });
 
@@ -291,7 +294,9 @@ describe('I18nObserver', () => {
       it('should accept setIgnoreWords with IgnoreWordEntry objects', () => {
         const i18n = new I18nObserver(createConfig());
         i18n.setIgnoreWords([{ word: 'Mary', meta: { gender: 'female' } }]);
-        expect(i18n.getIgnoreWords()).toEqual(['Mary']);
+        expect(i18n.getIgnoreWords()).toEqual([
+          { word: 'Mary', meta: { gender: 'female' } },
+        ]);
       });
     });
 

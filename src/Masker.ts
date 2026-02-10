@@ -231,17 +231,18 @@ export class Masker {
     return result;
   }
 
-  getIgnoreWords(): string[] {
-    return this.ignoreWords.map(w => w.word);
+  getIgnoreWords(): IgnoreWordEntry[] {
+    return this.ignoreWords.map(w => w.meta ? { word: w.word, meta: w.meta } : w.word);
   }
 
-  addIgnoreWords(...words: string[]): void {
+  addIgnoreWords(...words: IgnoreWordEntry[]): void {
+    const normalized = normalizeIgnoreWords(words);
     const existing = new Set(this.ignoreWords.map(w => w.word));
     let changed = false;
-    for (const word of words) {
-      if (word && !existing.has(word)) {
-        existing.add(word);
-        this.ignoreWords.push({ word });
+    for (const entry of normalized) {
+      if (entry.word && !existing.has(entry.word)) {
+        existing.add(entry.word);
+        this.ignoreWords.push(entry);
         changed = true;
       }
     }
@@ -251,8 +252,8 @@ export class Masker {
     }
   }
 
-  removeIgnoreWords(...words: string[]): void {
-    const toRemove = new Set(words);
+  removeIgnoreWords(...words: IgnoreWordEntry[]): void {
+    const toRemove = new Set(normalizeIgnoreWords(words).map(e => e.word));
     const newList = this.ignoreWords.filter(w => !toRemove.has(w.word));
     if (newList.length !== this.ignoreWords.length) {
       this.ignoreWords = newList;

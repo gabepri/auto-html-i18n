@@ -254,18 +254,19 @@ i18n.setLocale('fr');
 
 ### `getIgnoreWords()`
 
-Returns a copy of the current ignore words list.
+Returns a copy of the current ignore words list. Entries that have metadata are returned as objects; plain strings are returned as-is.
 
 ```javascript
-const words = i18n.getIgnoreWords(); // ['Google', 'John Doe']
+const words = i18n.getIgnoreWords();
+// ['Google', { word: 'Jane Doe', meta: { gender: 'female' } }]
 ```
 
 ### `addIgnoreWords(...words)`
 
-Adds one or more words to the ignore list and re-translates all observed nodes. Duplicates and empty strings are silently skipped.
+Adds one or more words to the ignore list and re-translates all observed nodes. Accepts plain strings or objects with metadata. Duplicates and empty strings are silently skipped.
 
 ```javascript
-i18n.addIgnoreWords('Acme', 'Jane Doe');
+i18n.addIgnoreWords('Acme', { word: 'Jane Doe', meta: { gender: 'female' } });
 ```
 
 ### `removeIgnoreWords(...words)`
