@@ -285,12 +285,26 @@ Replaces the entire ignore words list and re-translates all observed nodes. Acce
 i18n.setIgnoreWords(['NewBrand', { word: 'Jane', meta: { gender: 'female' } }]);
 ```
 
-### `stop()`
+### `stop(revert?)`
 
 Disconnects the `MutationObserver` and clears any pending translation queues. Does not clear the cache. Call `start()` to resume observation.
 
+When called with `true`, all translated elements are reverted to their original text and all `data-i18n-*` attributes added by the library are removed. Since the cache is preserved, calling `start()` afterward will re-apply translations immediately from cache.
+
 ```javascript
-i18n.stop();
+i18n.stop();       // stop observing, keep translations in DOM
+i18n.stop(true);   // stop observing and revert DOM to original text
+```
+
+### `destroy(revert?)`
+
+Fully tears down the instance: disconnects the observer, clears the queue, and **clears all translation caches**. When called with `true`, the DOM is also reverted to its original text and all attributes added by the library are removed (same as `stop(true)`).
+
+After `destroy()`, calling `start()` will re-observe the DOM but the cache will be empty. You can pre-populate it with `setTranslation()` before calling `start()`, otherwise uncached text will trigger `onMissingTranslation`.
+
+```javascript
+i18n.destroy();       // stop + clear cache, keep translations in DOM
+i18n.destroy(true);   // stop + clear cache + revert DOM to original text
 ```
 
 ### `getCache(locale?)`

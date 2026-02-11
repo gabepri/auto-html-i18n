@@ -95,6 +95,240 @@ describe('I18nObserver', () => {
       const i18n = new I18nObserver(createConfig());
       expect(() => i18n.stop()).not.toThrow();
     });
+
+    it('should revert translated text content when stop(true)', () => {
+      root.innerHTML = '<p>Hello</p>';
+      const i18n = new I18nObserver(createConfig({
+        initialCache: { 'Hello': 'Hola' },
+        rootElement: root,
+      }));
+
+      i18n.start();
+      expect(root.querySelector('p')?.textContent).toBe('Hola');
+
+      i18n.stop(true);
+      expect(root.querySelector('p')?.textContent).toBe('Hello');
+    });
+
+    it('should revert translated attributes when stop(true)', () => {
+      root.innerHTML = '<input placeholder="Search here">';
+      const i18n = new I18nObserver(createConfig({
+        initialCache: { 'Search here': 'Buscar aquí' },
+        rootElement: root,
+      }));
+
+      i18n.start();
+      const input = root.querySelector('input')!;
+      expect(input.getAttribute('placeholder')).toBe('Buscar aquí');
+
+      i18n.stop(true);
+      expect(input.getAttribute('placeholder')).toBe('Search here');
+    });
+
+    it('should remove all data-i18n-* attributes when stop(true)', () => {
+      root.innerHTML = '<p>Hello</p><input placeholder="Search here">';
+      const i18n = new I18nObserver(createConfig({
+        initialCache: { 'Hello': 'Hola', 'Search here': 'Buscar aquí' },
+        rootElement: root,
+      }));
+
+      i18n.start();
+      i18n.stop(true);
+
+      const p = root.querySelector('p')!;
+      const input = root.querySelector('input')!;
+      expect(p.hasAttribute('data-i18n-original')).toBe(false);
+      expect(p.hasAttribute('data-i18n-pending')).toBe(false);
+      expect(input.hasAttribute('data-i18n-original-placeholder')).toBe(false);
+    });
+
+    it('should revert innerHTML content with inline tags when stop(true)', () => {
+      root.innerHTML = '<p>Click <a href="/login">here</a> to login</p>';
+      const i18n = new I18nObserver(createConfig({
+        initialCache: { 'Click <a0>here</a0> to login': 'Haga clic <a0>aquí</a0> para iniciar sesión' },
+        rootElement: root,
+      }));
+
+      i18n.start();
+      expect(root.querySelector('p')?.textContent).toBe('Haga clic aquí para iniciar sesión');
+
+      i18n.stop(true);
+      expect(root.querySelector('p')?.innerHTML).toBe('Click <a href="/login">here</a> to login');
+    });
+
+    it('should not revert when stop() called without argument', () => {
+      root.innerHTML = '<p>Hello</p>';
+      const i18n = new I18nObserver(createConfig({
+        initialCache: { 'Hello': 'Hola' },
+        rootElement: root,
+      }));
+
+      i18n.start();
+      i18n.stop();
+
+      expect(root.querySelector('p')?.textContent).toBe('Hola');
+      expect(root.querySelector('p')?.hasAttribute('data-i18n-original')).toBe(true);
+    });
+
+    it('should not revert when stop(false)', () => {
+      root.innerHTML = '<p>Hello</p>';
+      const i18n = new I18nObserver(createConfig({
+        initialCache: { 'Hello': 'Hola' },
+        rootElement: root,
+      }));
+
+      i18n.start();
+      i18n.stop(false);
+
+      expect(root.querySelector('p')?.textContent).toBe('Hola');
+    });
+
+    it('should remove pending attributes when stop(true) with in-flight translations', () => {
+      root.innerHTML = '<p>Hello</p>';
+      const i18n = new I18nObserver(createConfig({
+        rootElement: root,
+      }));
+
+      i18n.start();
+      expect(root.querySelector('p')?.hasAttribute('data-i18n-pending')).toBe(true);
+
+      i18n.stop(true);
+      expect(root.querySelector('p')?.hasAttribute('data-i18n-pending')).toBe(false);
+      // Text should still be original since it was never translated
+      expect(root.querySelector('p')?.textContent).toBe('Hello');
+    });
+
+    it('should allow start() after stop(true) to re-translate from cache', () => {
+      root.innerHTML = '<p>Hello</p>';
+      const i18n = new I18nObserver(createConfig({
+        initialCache: { 'Hello': 'Hola' },
+        rootElement: root,
+      }));
+
+      i18n.start();
+      expect(root.querySelector('p')?.textContent).toBe('Hola');
+
+      i18n.stop(true);
+      expect(root.querySelector('p')?.textContent).toBe('Hello');
+
+      i18n.start();
+      expect(root.querySelector('p')?.textContent).toBe('Hola');
+    });
+
+    it('should revert multiple elements when stop(true)', () => {
+      root.innerHTML = '<p>Hello</p><p>Goodbye</p>';
+      const i18n = new I18nObserver(createConfig({
+        initialCache: { 'Hello': 'Hola', 'Goodbye': 'Adiós' },
+        rootElement: root,
+      }));
+
+      i18n.start();
+      const [p1, p2] = root.querySelectorAll('p');
+      expect(p1?.textContent).toBe('Hola');
+      expect(p2?.textContent).toBe('Adiós');
+
+      i18n.stop(true);
+      expect(p1?.textContent).toBe('Hello');
+      expect(p2?.textContent).toBe('Goodbye');
+    });
+  });
+
+  describe('destroy()', () => {
+    it('should clear cache', () => {
+      const i18n = new I18nObserver(createConfig({
+        initialCache: { 'Hello': 'Hola' },
+      }));
+
+      expect(i18n.getTranslation('Hello')).toBe('Hola');
+      i18n.destroy();
+      expect(i18n.getTranslation('Hello')).toBeUndefined();
+    });
+
+    it('should revert DOM and clear cache when destroy(true)', () => {
+      root.innerHTML = '<p>Hello</p><input placeholder="Search here">';
+      const i18n = new I18nObserver(createConfig({
+        initialCache: { 'Hello': 'Hola', 'Search here': 'Buscar aquí' },
+        rootElement: root,
+      }));
+
+      i18n.start();
+      const p = root.querySelector('p')!;
+      const input = root.querySelector('input')!;
+      expect(p.textContent).toBe('Hola');
+      expect(input.getAttribute('placeholder')).toBe('Buscar aquí');
+
+      i18n.destroy(true);
+
+      // Text and attributes reverted
+      expect(p.textContent).toBe('Hello');
+      expect(input.getAttribute('placeholder')).toBe('Search here');
+
+      // All data-i18n-* attributes removed
+      expect(p.hasAttribute('data-i18n-original')).toBe(false);
+      expect(p.hasAttribute('data-i18n-pending')).toBe(false);
+      expect(input.hasAttribute('data-i18n-original-placeholder')).toBe(false);
+
+      // Cache cleared
+      expect(i18n.getTranslation('Hello')).toBeUndefined();
+    });
+
+    it('should clear cache without reverting DOM when destroy(false)', () => {
+      root.innerHTML = '<p>Hello</p>';
+      const i18n = new I18nObserver(createConfig({
+        initialCache: { 'Hello': 'Hola' },
+        rootElement: root,
+      }));
+
+      i18n.start();
+      i18n.destroy(false);
+
+      expect(root.querySelector('p')?.textContent).toBe('Hola');
+      expect(i18n.getTranslation('Hello')).toBeUndefined();
+    });
+
+    it('should stop observing after destroy()', async () => {
+      const onMissing = vi.fn().mockResolvedValue(null);
+      const i18n = new I18nObserver(createConfig({
+        onMissingTranslation: onMissing,
+        rootElement: root,
+      }));
+
+      i18n.start();
+      i18n.destroy();
+      onMissing.mockClear();
+
+      const p = document.createElement('p');
+      p.textContent = 'After destroy';
+      root.appendChild(p);
+
+      await new Promise(r => setTimeout(r, 0));
+      expect(p.hasAttribute('data-i18n-pending')).toBe(false);
+    });
+
+    it('should be safe to call destroy() without start()', () => {
+      const i18n = new I18nObserver(createConfig());
+      expect(() => i18n.destroy()).not.toThrow();
+    });
+
+    it('should trigger onMissingTranslation on start() after destroy()', () => {
+      root.innerHTML = '<p>Hello</p>';
+      const onMissing = vi.fn().mockResolvedValue(null);
+      const i18n = new I18nObserver(createConfig({
+        initialCache: { 'Hello': 'Hola' },
+        onMissingTranslation: onMissing,
+        rootElement: root,
+      }));
+
+      i18n.start();
+      expect(root.querySelector('p')?.textContent).toBe('Hola');
+
+      i18n.destroy(true);
+      expect(root.querySelector('p')?.textContent).toBe('Hello');
+
+      // After destroy, cache is gone — start() should queue for translation
+      i18n.start();
+      expect(root.querySelector('p')?.hasAttribute('data-i18n-pending')).toBe(true);
+    });
   });
 
   describe('setTranslation()', () => {

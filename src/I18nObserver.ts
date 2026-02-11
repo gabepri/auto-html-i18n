@@ -123,9 +123,18 @@ export class I18nObserver {
     this.observer.start();
   }
 
-  stop(): void {
+  stop(revert?: boolean): void {
     this.observer.stop();
     this.queue.clear();
+    if (revert) {
+      this.translator.revertAll();
+    }
+  }
+
+  destroy(revert?: boolean): void {
+    this.stop(revert);
+    this.store.clearCache();
+    this.translator.clearPending();
   }
 
   setTranslation(locale: string, data: Record<string, TranslationEntry>): void {

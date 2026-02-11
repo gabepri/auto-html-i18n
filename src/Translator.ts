@@ -252,6 +252,53 @@ export class Translator {
     }
   }
 
+  revertAll(): void {
+    // Revert text nodes
+    const elements = document.querySelectorAll(
+      `[${this.config.originalAttribute}]`
+    );
+    for (const element of elements) {
+      const originalText = element.getAttribute(this.config.originalAttribute);
+      if (originalText) {
+        const isHtml = /<[^>]+>/.test(originalText);
+        if (isHtml) {
+          element.innerHTML = originalText;
+        } else {
+          element.textContent = originalText;
+        }
+      }
+      element.removeAttribute(this.config.originalAttribute);
+      element.removeAttribute(this.config.pendingAttribute);
+    }
+
+    // Revert attributes
+    for (const attr of this.config.translatableAttributes) {
+      const originalAttrName = `${this.config.originalAttribute}-${attr}`;
+      const attrElements = document.querySelectorAll(`[${originalAttrName}]`);
+      for (const element of attrElements) {
+        const originalValue = element.getAttribute(originalAttrName);
+        if (originalValue) {
+          element.setAttribute(attr, originalValue);
+        }
+        element.removeAttribute(originalAttrName);
+      }
+    }
+
+    // Remove pending attributes from any remaining pending-only elements
+    const pendingElements = document.querySelectorAll(
+      `[${this.config.pendingAttribute}]`
+    );
+    for (const element of pendingElements) {
+      element.removeAttribute(this.config.pendingAttribute);
+    }
+
+    this.pendingNodes.clear();
+  }
+
+  clearPending(): void {
+    this.pendingNodes.clear();
+  }
+
   setLocale(locale: string): void {
     this.config.locale = locale;
   }
