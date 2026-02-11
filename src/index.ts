@@ -9,4 +9,5 @@ export type {
   VariableInfo,
   VariableType,
   IgnoreWordEntry,
+  I18nStatus,
 } from './types';

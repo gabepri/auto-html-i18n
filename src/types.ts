@@ -38,6 +38,10 @@ export type OnMissingTranslationCallback = (
   locale: string
 ) => Promise<Record<string, TranslationEntry> | null>;
 
+// ---- Status Types ----
+
+export type I18nStatus = 'idle' | 'observing' | 'stopped' | 'destroyed';
+
 // ---- Configuration Types ----
 
 export interface I18nConfig {

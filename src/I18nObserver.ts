@@ -1,4 +1,4 @@
-import type { I18nConfig, IgnoreWordEntry, TranslationEntry, TranslationItem } from './types';
+import type { I18nConfig, I18nStatus, IgnoreWordEntry, TranslationEntry, TranslationItem } from './types';
 import { Store } from './Store';
 import { Queue } from './Queue';
 import { Masker } from './Masker';
@@ -28,6 +28,7 @@ export class I18nObserver {
   private observer: Observer;
   private translator: Translator;
   private currentLocale: string;
+  private _status: I18nStatus = 'idle';
   private config: Required<I18nConfig>;
 
   constructor(userConfig: I18nConfig) {
@@ -119,8 +120,13 @@ export class I18nObserver {
     }
   }
 
+  get status(): I18nStatus {
+    return this._status;
+  }
+
   start(): void {
     this.observer.start();
+    this._status = 'observing';
   }
 
   stop(revert?: boolean): void {
@@ -129,12 +135,14 @@ export class I18nObserver {
     if (revert) {
       this.translator.revertAll();
     }
+    this._status = 'stopped';
   }
 
   destroy(revert?: boolean): void {
     this.stop(revert);
     this.store.clearCache();
     this.translator.clearPending();
+    this._status = 'destroyed';
   }
 
   setCache(locale: string, data: Record<string, TranslationEntry>): void {

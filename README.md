@@ -204,6 +204,25 @@ See [Scoped Translations](#-scoped-translations) for details.
 
 While the library primarily works by observing the DOM, you can also interact with the internal cache programmatically. This is useful for SSR hydration, pre-fetching, or imperative usage.
 
+### `status`
+
+Returns the current lifecycle status of the observer. Possible values:
+
+| Value | Description |
+|-------|-------------|
+| `'idle'` | Constructed but `start()` has not been called yet |
+| `'observing'` | Actively observing the DOM for changes |
+| `'stopped'` | `stop()` was called; can be restarted with `start()` |
+| `'destroyed'` | `destroy()` was called; can be restarted with `start()` (cache will be empty) |
+
+```javascript
+console.log(i18n.status); // 'idle'
+i18n.start();
+console.log(i18n.status); // 'observing'
+i18n.stop();
+console.log(i18n.status); // 'stopped'
+```
+
 ### `start()`
 
 Connects the `MutationObserver` to the configured `rootElement` and begins observing for text changes. Any existing text content is processed immediately.

@@ -19,6 +19,52 @@ describe('I18nObserver', () => {
     document.body.appendChild(root);
   });
 
+  describe('status', () => {
+    it('should be idle after construction', () => {
+      const i18n = new I18nObserver(createConfig({ rootElement: root }));
+      expect(i18n.status).toBe('idle');
+    });
+
+    it('should be observing after start()', () => {
+      const i18n = new I18nObserver(createConfig({ rootElement: root }));
+      i18n.start();
+      expect(i18n.status).toBe('observing');
+      i18n.stop();
+    });
+
+    it('should be stopped after stop()', () => {
+      const i18n = new I18nObserver(createConfig({ rootElement: root }));
+      i18n.start();
+      i18n.stop();
+      expect(i18n.status).toBe('stopped');
+    });
+
+    it('should be destroyed after destroy()', () => {
+      const i18n = new I18nObserver(createConfig({ rootElement: root }));
+      i18n.start();
+      i18n.destroy();
+      expect(i18n.status).toBe('destroyed');
+    });
+
+    it('should be observing after start() following stop()', () => {
+      const i18n = new I18nObserver(createConfig({ rootElement: root }));
+      i18n.start();
+      i18n.stop();
+      i18n.start();
+      expect(i18n.status).toBe('observing');
+      i18n.stop();
+    });
+
+    it('should be observing after start() following destroy()', () => {
+      const i18n = new I18nObserver(createConfig({ rootElement: root }));
+      i18n.start();
+      i18n.destroy();
+      i18n.start();
+      expect(i18n.status).toBe('observing');
+      i18n.stop();
+    });
+  });
+
   describe('constructor', () => {
     it('should require locale and onMissingTranslation', () => {
       const config = createConfig();
