@@ -212,23 +212,34 @@ Connects the `MutationObserver` to the configured `rootElement` and begins obser
 i18n.start();
 ```
 
-### `setTranslation(locale, data)`
+### `stop(revert?)`
 
-Manually load translations into the cache. This bypasses the network queue and marks these keys as 'resolved'.
+Disconnects the `MutationObserver` and clears any pending translation queues. Does not clear the cache. Call `start()` to resume observation.
+
+When called with `true`, all translated elements are reverted to their original text and all `data-i18n-*` attributes added by the library are removed. Since the cache is preserved, calling `start()` afterward will re-apply translations immediately from cache.
 
 ```javascript
-i18n.setTranslation('es', {
-  "Welcome {{0}}": "Bienvenido {{0}}",
-  "Save": "Guardar"
-});
+i18n.stop();       // stop observing, keep translations in DOM
+i18n.stop(true);   // stop observing and revert DOM to original text
 ```
 
-### `getTranslation(key, locale?)`
+### `destroy(revert?)`
 
-Retrieves the translation string from the cache. Returns `undefined` if the key is not found.
+Fully tears down the instance: disconnects the observer, clears the queue, and **clears all translation caches**. When called with `true`, the DOM is also reverted to its original text and all attributes added by the library are removed (same as `stop(true)`).
+
+After `destroy()`, calling `start()` will re-observe the DOM but the cache will be empty. You can pre-populate it with `setCache()` before calling `start()`, otherwise uncached text will trigger `onMissingTranslation`.
 
 ```javascript
-const translation = i18n.getTranslation("Save", "es"); // "Guardar"
+i18n.destroy();       // stop + clear cache, keep translations in DOM
+i18n.destroy(true);   // stop + clear cache + revert DOM to original text
+```
+
+### `setLocale(locale)`
+
+Updates the target locale and re-translates all observed nodes using the new locale's cache. Any uncached keys in the new locale will trigger `onMissingTranslation`. The original text is preserved in the configured `originalAttribute` (default `data-i18n-original`) on each translated element, so switching locales does not require a page reload.
+
+```javascript
+i18n.setLocale('fr');
 ```
 
 ### `translate(text, variables?, scope?)`
@@ -244,12 +255,40 @@ const text = i18n.translate("Welcome {{0}}", ["John"]); // "Bienvenido John"
 const scoped = i18n.translate("Submit", undefined, "checkout"); // "Finalizar compra"
 ```
 
-### `setLocale(locale)`
+### `getTranslation(key, locale?)`
 
-Updates the target locale and re-translates all observed nodes using the new locale's cache. Any uncached keys in the new locale will trigger `onMissingTranslation`. The original text is preserved in the configured `originalAttribute` (default `data-i18n-original`) on each translated element, so switching locales does not require a page reload.
+Retrieves the translation string from the cache. Returns `undefined` if the key is not found.
 
 ```javascript
-i18n.setLocale('fr');
+const translation = i18n.getTranslation("Save", "es"); // "Guardar"
+```
+
+### `setCache(locale, data)`
+
+Manually load translations into the cache. This bypasses the network queue and marks these keys as 'resolved'.
+
+```javascript
+i18n.setCache('es', {
+  "Welcome {{0}}": "Bienvenido {{0}}",
+  "Save": "Guardar"
+});
+```
+
+### `getCache(locale?)`
+
+Returns a snapshot of the current translation cache for the given locale (or the current locale if omitted). Useful for persisting translations to `localStorage` or `IndexedDB` and restoring them via `initialCache`.
+
+```javascript
+const cache = i18n.getCache('es');
+localStorage.setItem('i18n-cache-es', JSON.stringify(cache));
+```
+
+### `clearCache(locale?)`
+
+Flushes the translation cache for the given locale, or all locales if omitted. Subsequent DOM observations will re-trigger `onMissingTranslation` for cleared keys.
+
+```javascript
+i18n.clearCache('es');
 ```
 
 ### `getIgnoreWords()`
@@ -283,45 +322,6 @@ Replaces the entire ignore words list and re-translates all observed nodes. Acce
 
 ```javascript
 i18n.setIgnoreWords(['NewBrand', { word: 'Jane', meta: { gender: 'female' } }]);
-```
-
-### `stop(revert?)`
-
-Disconnects the `MutationObserver` and clears any pending translation queues. Does not clear the cache. Call `start()` to resume observation.
-
-When called with `true`, all translated elements are reverted to their original text and all `data-i18n-*` attributes added by the library are removed. Since the cache is preserved, calling `start()` afterward will re-apply translations immediately from cache.
-
-```javascript
-i18n.stop();       // stop observing, keep translations in DOM
-i18n.stop(true);   // stop observing and revert DOM to original text
-```
-
-### `destroy(revert?)`
-
-Fully tears down the instance: disconnects the observer, clears the queue, and **clears all translation caches**. When called with `true`, the DOM is also reverted to its original text and all attributes added by the library are removed (same as `stop(true)`).
-
-After `destroy()`, calling `start()` will re-observe the DOM but the cache will be empty. You can pre-populate it with `setTranslation()` before calling `start()`, otherwise uncached text will trigger `onMissingTranslation`.
-
-```javascript
-i18n.destroy();       // stop + clear cache, keep translations in DOM
-i18n.destroy(true);   // stop + clear cache + revert DOM to original text
-```
-
-### `getCache(locale?)`
-
-Returns a snapshot of the current translation cache for the given locale (or the current locale if omitted). Useful for persisting translations to `localStorage` or `IndexedDB` and restoring them via `initialCache`.
-
-```javascript
-const cache = i18n.getCache('es');
-localStorage.setItem('i18n-cache-es', JSON.stringify(cache));
-```
-
-### `clearCache(locale?)`
-
-Flushes the translation cache for the given locale, or all locales if omitted. Subsequent DOM observations will re-trigger `onMissingTranslation` for cleared keys.
-
-```javascript
-i18n.clearCache('es');
 ```
 
 ---
@@ -491,7 +491,7 @@ Add `data-i18n-scope` to any ancestor element. All translatable elements within 
 
 ### Pre-loading Scoped Translations
 
-Scoped entries work with `initialCache` and `setTranslation()`:
+Scoped entries work with `initialCache` and `setCache()`:
 
 ```javascript
 const i18n = new I18nObserver({
@@ -528,9 +528,9 @@ const i18n = new I18nObserver({
 
 On first load, users may briefly see source-language text before translations arrive. To minimize this:
 
-- **Pre-load translations** using `initialCache` or `setTranslation()` before calling `start()`.
+- **Pre-load translations** using `initialCache` or `setCache()` before calling `start()`.
 - **Hide pending elements** with CSS: `[data-i18n-pending] { visibility: hidden; }`. The library adds this attribute while a translation is in-flight and removes it once applied.
-- **SSR hydration:** Call `setTranslation()` with server-provided translations before `start()` to populate the cache immediately.
+- **SSR hydration:** Call `setCache()` with server-provided translations before `start()` to populate the cache immediately.
 
 ---
 

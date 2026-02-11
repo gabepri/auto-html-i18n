@@ -331,10 +331,10 @@ describe('I18nObserver', () => {
     });
   });
 
-  describe('setTranslation()', () => {
+  describe('setCache()', () => {
     it('should load translations into cache', () => {
       const i18n = new I18nObserver(createConfig());
-      i18n.setTranslation('es', { 'Hello': 'Hola', 'Bye': 'Adiós' });
+      i18n.setCache('es', { 'Hello': 'Hola', 'Bye': 'Adiós' });
 
       expect(i18n.getTranslation('Hello')).toBe('Hola');
       expect(i18n.getTranslation('Bye')).toBe('Adiós');
@@ -359,7 +359,7 @@ describe('I18nObserver', () => {
 
     it('should support explicit locale parameter', () => {
       const i18n = new I18nObserver(createConfig());
-      i18n.setTranslation('fr', { 'Hello': 'Bonjour' });
+      i18n.setCache('fr', { 'Hello': 'Bonjour' });
 
       expect(i18n.getTranslation('Hello', 'fr')).toBe('Bonjour');
       expect(i18n.getTranslation('Hello', 'es')).toBeUndefined();
@@ -410,7 +410,7 @@ describe('I18nObserver', () => {
       expect(root.querySelector('p')?.textContent).toBe('Hola');
 
       // Load French translations and switch
-      i18n.setTranslation('fr', { 'Hello': 'Bonjour' });
+      i18n.setCache('fr', { 'Hello': 'Bonjour' });
       i18n.setLocale('fr');
 
       expect(root.querySelector('p')?.textContent).toBe('Bonjour');
@@ -589,9 +589,9 @@ describe('I18nObserver', () => {
       i18n.stop();
     });
 
-    it('should store and retrieve scoped translation via setTranslation', () => {
+    it('should store and retrieve scoped translation via setCache', () => {
       const i18n = new I18nObserver(createConfig());
-      i18n.setTranslation('es', { 'Submit': { checkout: 'Finalizar compra' } });
+      i18n.setCache('es', { 'Submit': { checkout: 'Finalizar compra' } });
 
       expect(i18n.getTranslation('Submit')).toEqual({ checkout: 'Finalizar compra' });
     });
@@ -634,7 +634,7 @@ describe('I18nObserver', () => {
 
     it('should return cache for a specific locale', () => {
       const i18n = new I18nObserver(createConfig());
-      i18n.setTranslation('fr', { 'Hello': 'Bonjour' });
+      i18n.setCache('fr', { 'Hello': 'Bonjour' });
 
       expect(i18n.getCache('fr')).toEqual({ 'Hello': 'Bonjour' });
     });
@@ -643,7 +643,7 @@ describe('I18nObserver', () => {
       const i18n = new I18nObserver(createConfig({
         initialCache: { 'Hello': 'Hola' },
       }));
-      i18n.setTranslation('fr', { 'Hello': 'Bonjour' });
+      i18n.setCache('fr', { 'Hello': 'Bonjour' });
 
       i18n.clearCache('es');
 
@@ -655,7 +655,7 @@ describe('I18nObserver', () => {
       const i18n = new I18nObserver(createConfig({
         initialCache: { 'Hello': 'Hola' },
       }));
-      i18n.setTranslation('fr', { 'Hello': 'Bonjour' });
+      i18n.setCache('fr', { 'Hello': 'Bonjour' });
 
       i18n.clearCache();
 

@@ -137,7 +137,7 @@ export class I18nObserver {
     this.translator.clearPending();
   }
 
-  setTranslation(locale: string, data: Record<string, TranslationEntry>): void {
+  setCache(locale: string, data: Record<string, TranslationEntry>): void {
     this.store.loadBulk(locale, data);
   }
 
