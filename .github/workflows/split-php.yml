@@ -1,9 +1,8 @@
 name: Split PHP package to auto-html-i18n-php
 
-# Mirrors packages/php/ to the auto-html-i18n-php repo with full git history.
-# That mirror is what Packagist watches — it's the single source of "the PHP package as a standalone repo".
-# - Push to main → mirror the latest main branch (so the default branch on the split repo stays current)
-# - Push tag v* → mirror with the tag attached, which is what triggers Packagist to create a new version
+# Mirrors packages/php/ to the auto-html-i18n-php repo using splitsh/lite — preserves
+# git history so the split repo looks like a real package, not a flat dump.
+# Push to main → main (latest source). Tag push or workflow_dispatch with tag → tag (frozen version).
 on:
   push:
     branches: [main]
@@ -16,23 +15,56 @@ on:
         type: string
 
 jobs:
-  split-php:
+  split:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # full history required for clean subtree split
+          fetch-depth: 0  # full history needed for splitsh
 
-      - name: Split packages/php → auto-html-i18n-php
-        uses: symplify/monorepo-split-github-action@v2.3.0
+      - uses: webfactory/ssh-agent@v0.9.1
         with:
-          package_directory: packages/php
-          repository_organization: gabepri
-          repository_name: auto-html-i18n-php
-          branch: main
-          tag: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
-          user_name: gabepri
-          user_email: gabepriyev@incentfit.com
+          ssh-private-key: ${{ secrets.PHP_SPLIT_DEPLOY_KEY }}
+
+      - name: Trust github.com SSH host key
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Install splitsh-lite
+        run: |
+          curl -sL https://github.com/splitsh/lite/releases/download/v2.0.0/lite_linux_amd64.tar.gz | tar -xz -C /tmp
+          sudo mv /tmp/splitsh-lite /usr/local/bin/
+
+      - name: Determine ref to mirror
+        id: ref
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ inputs.tag }}" ]]; then
+            echo "tag=${{ inputs.tag }}"      >> "$GITHUB_OUTPUT"
+            echo "checkout=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "tag=${{ github.ref_name }}"      >> "$GITHUB_OUTPUT"
+            echo "checkout=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag="                           >> "$GITHUB_OUTPUT"
+            echo "checkout=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout target ref
+        run: git checkout "${{ steps.ref.outputs.checkout }}"
+
+      - name: Split packages/php and push
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SSH_PRIVATE_KEY: ${{ secrets.PHP_SPLIT_DEPLOY_KEY }}
+          TAG: ${{ steps.ref.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git remote add split git@github.com:gabepri/auto-html-i18n-php.git
+          SHA=$(splitsh-lite --prefix=packages/php)
+          echo "Split SHA: $SHA"
+          if [ -z "$TAG" ]; then
+            echo "Mirroring main → main"
+            git push split "$SHA:refs/heads/main"
+          else
+            echo "Mirroring $TAG → tag $TAG"
+            git push split --force "$SHA:refs/tags/$TAG"
+          fi
