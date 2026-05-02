@@ -7,8 +7,11 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  js:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/js
     strategy:
       matrix:
         node-version: [18, 20, 22]
@@ -17,8 +20,30 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: packages/js/package-lock.json
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run test
       - run: npm run build
+
+  php:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/php
+    strategy:
+      matrix:
+        php-version: ['8.1', '8.2', '8.3']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: intl, mbstring
+          coverage: none
+      - uses: ramsey/composer-install@v3
+        with:
+          working-directory: packages/php
+      - run: vendor/bin/phpunit
