@@ -79,6 +79,13 @@ When changing Masker behavior, prefer adding a shared fixture (so both ports sta
 
 Update the relevant package README whenever the public API or config changes, or when documentation becomes ambiguous or untrue.
 
+## Releasing
+
+See the [Releasing section in the root README](README.md#releasing) for the per-package recipes. Two non-obvious things:
+
+- `npm version` in `packages/js/` only bumps files in a monorepo — it doesn't auto-commit/tag. The README recipe handles this explicitly.
+- The PHP package publishes via a read-only mirror at `gabepri/auto-html-i18n-php` because Packagist requires `composer.json` at the repo root. The mirror is auto-rebuilt by [.github/workflows/split-php.yml](.github/workflows/split-php.yml) using an SSH deploy key (secret name `PHP_SPLIT_DEPLOY_KEY`). Never push to the mirror directly — always edit `packages/php/` here.
+
 ## Git Conventions
 
 - Keep commit messages very short (under 100 chars preferred)
