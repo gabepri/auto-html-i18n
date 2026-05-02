@@ -1,4 +1,4 @@
-# auto-dom-i18n
+# auto-html-i18n
 
 Automatic translation of rendered markup. Walks HTML, extracts translatable text, masks variables (numbers, dates, ignored words, inline tags), looks up translations in a cache, and falls back to a user-supplied backend for misses. ICU MessageFormat is supported throughout.
 
@@ -8,8 +8,8 @@ This repository hosts implementations for multiple runtimes. Both ports share th
 
 | Package | Runtime | Use it for | Path |
 |---|---|---|---|
-| `auto-dom-i18n` (npm) | Browser / DOM | Live translation of rendered pages via `MutationObserver` | [packages/js](packages/js/) |
-| `auto-dom-i18n` (Composer) | PHP 8.1+ | Server-side: HTML string in, translated HTML string out | [packages/php](packages/php/) |
+| `auto-html-i18n` (npm) | Browser / DOM | Live translation of rendered pages via `MutationObserver` | [packages/js](packages/js/) |
+| `auto-html-i18n` (Composer) | PHP 8.1+ | Server-side: HTML string in, translated HTML string out | [packages/php](packages/php/) |
 
 ## Repo layout
 

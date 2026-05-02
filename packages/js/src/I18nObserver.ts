@@ -227,7 +227,7 @@ export class I18nObserver {
         }
       }
     } catch (err) {
-      console.error('auto-dom-i18n: translation callback error', err);
+      console.error('auto-html-i18n: translation callback error', err);
       // Mark items as reported to prevent infinite re-queuing
       for (const item of items) {
         this.store.markReported(this.currentLocale, item.masked);

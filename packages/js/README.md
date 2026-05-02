@@ -1,10 +1,10 @@
-# auto-dom-i18n
+# auto-html-i18n
 
-[![NPM Version](https://img.shields.io/npm/v/auto-dom-i18n)](https://www.npmjs.com/package/auto-dom-i18n)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/gabepri/auto-dom-i18n/main.yml)](https://github.com/gabepri/auto-dom-i18n/actions)
-[![License](https://img.shields.io/github/license/gabepri/auto-dom-i18n)](https://github.com/gabepri/auto-dom-i18n/blob/main/LICENSE)
+[![NPM Version](https://img.shields.io/npm/v/auto-html-i18n)](https://www.npmjs.com/package/auto-html-i18n)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/gabepri/auto-html-i18n/main.yml)](https://github.com/gabepri/auto-html-i18n/actions)
+[![License](https://img.shields.io/github/license/gabepri/auto-html-i18n)](https://github.com/gabepri/auto-html-i18n/blob/main/LICENSE)
 
-**auto-dom-i18n** is a framework-agnostic translation library that uses `MutationObserver` to automatically translate text content in your application, with built-in ICU MessageFormat support for advanced pluralization and gender handling.
+**auto-html-i18n** is a framework-agnostic translation library that uses `MutationObserver` to automatically translate text content in your application, with built-in ICU MessageFormat support for advanced pluralization and gender handling.
 
 It features **Smart Masking**, **Inline Tag Support**, and **ICU MessageFormat** evaluation. Unlike traditional libraries that map static keys to strings, this library observes the DOM and detects natural language automatically—no manual key mapping or framework bindings required.
 
@@ -43,11 +43,11 @@ It features **Smart Masking**, **Inline Tag Support**, and **ICU MessageFormat**
 ## 📦 Installation
 
 ```bash
-npm install auto-dom-i18n
+npm install auto-html-i18n
 # or
-yarn add auto-dom-i18n
+yarn add auto-html-i18n
 # or
-pnpm add auto-dom-i18n
+pnpm add auto-html-i18n
 ```
 
 ## 🚀 Quick Start
@@ -55,7 +55,7 @@ pnpm add auto-dom-i18n
 Initialize the library at the root of your application.
 
 ```javascript
-import { I18nObserver } from 'auto-dom-i18n';
+import { I18nObserver } from 'auto-html-i18n';
 
 // 1. Define your configuration
 const i18n = new I18nObserver({
@@ -131,7 +131,7 @@ Each variable includes its auto-detected type (`'ignoreWord'`, `'number'`, `'dat
 
 ## 📡 Backend Requirements
 
-Since `auto-dom-i18n` is client-side only, you must provide a backend endpoint to perform the actual translation (e.g., database lookup, translation API, and/or an LLM).
+Since `auto-html-i18n` is client-side only, you must provide a backend endpoint to perform the actual translation (e.g., database lookup, translation API, and/or an LLM).
 
 ### Request Format
 Here is an example of how you might structure the POST body in your callback:
@@ -527,7 +527,7 @@ const i18n = new I18nObserver({
 
 ## 🌐 Browser Support
 
-**auto-dom-i18n** relies on `MutationObserver`, which is supported in all modern browsers:
+**auto-html-i18n** relies on `MutationObserver`, which is supported in all modern browsers:
 
 - Chrome 26+
 - Firefox 14+
@@ -621,7 +621,7 @@ You can immediately see the DOM structure and reconstruct it for a bug report.
 
 ## 🛠 Framework Integration
 
-While **auto-dom-i18n** is framework-agnostic, here is how you typically initialize it:
+While **auto-html-i18n** is framework-agnostic, here is how you typically initialize it:
 
 ### How It Works with Frameworks
 
@@ -658,8 +658,8 @@ We welcome contributions! This library is built with TypeScript and uses Vitest 
 1.  **Clone the repo**
 
     ```bash
-    git clone https://github.com/gabepri/auto-dom-i18n.git
-    cd auto-dom-i18n
+    git clone https://github.com/gabepri/auto-html-i18n.git
+    cd auto-html-i18n
     ```
 
 2.  **Install dependencies**

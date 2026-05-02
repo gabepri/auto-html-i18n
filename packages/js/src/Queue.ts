@@ -35,7 +35,7 @@ export class Queue {
         await this.onFlush(chunk);
       } catch {
         // Log but don't re-throw to prevent breaking the observation pipeline
-        console.error('auto-dom-i18n: onFlush error');
+        console.error('auto-html-i18n: onFlush error');
       }
     }
   }

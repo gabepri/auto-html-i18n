@@ -12,11 +12,11 @@ export default defineConfig({
   build: {
     lib: {
       entry: resolve(__dirname, 'src/index.ts'),
-      name: 'AutoDomI18n',
+      name: 'AutoHtmlI18n',
       formats: ['es', 'cjs'],
       fileName: (format) => {
-        if (format === 'es') return 'auto-dom-i18n.js';
-        return 'auto-dom-i18n.cjs';
+        if (format === 'es') return 'auto-html-i18n.js';
+        return 'auto-html-i18n.cjs';
       },
     },
     sourcemap: true,

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a monorepo with one library implemented across multiple runtimes:
 
-- [packages/js](packages/js/) — TypeScript browser library (the original `auto-dom-i18n` npm package)
+- [packages/js](packages/js/) — TypeScript browser library (the original `auto-html-i18n` npm package)
 - [packages/php](packages/php/) — PHP 8.1+ server-side library
 - [fixtures/](fixtures/) — shared JSON test cases (Masker behavior parity across ports)
 
