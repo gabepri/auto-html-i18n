@@ -1,0 +1,105 @@
+[
+  {
+    "name": "copyright symbol © followed by year",
+    "input": "© 2024 Acme Inc",
+    "expected": {
+      "masked": "{{0}} {{1}} Acme Inc",
+      "variables": [
+        { "value": "©", "type": "symbol" },
+        { "value": "2024", "type": "number" }
+      ],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "registered trademark ®",
+    "input": "Acme® is great",
+    "expected": {
+      "masked": "Acme{{0}} is great",
+      "variables": [{ "value": "®", "type": "symbol" }],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "trademark ™",
+    "input": "Brand™ products",
+    "expected": {
+      "masked": "Brand{{0}} products",
+      "variables": [{ "value": "™", "type": "symbol" }],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "euro currency",
+    "input": "Price: €50",
+    "expected": {
+      "masked": "Price: {{0}}{{1}}",
+      "variables": [
+        { "value": "€", "type": "symbol" },
+        { "value": "50", "type": "number" }
+      ],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "dollar sign",
+    "input": "Price: $30",
+    "expected": {
+      "masked": "Price: {{0}}{{1}}",
+      "variables": [
+        { "value": "$", "type": "symbol" },
+        { "value": "30", "type": "number" }
+      ],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "section symbol § followed by number",
+    "input": "See § 5 for details",
+    "expected": {
+      "masked": "See {{0}} {{1}} for details",
+      "variables": [
+        { "value": "§", "type": "symbol" },
+        { "value": "5", "type": "number" }
+      ],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "degree symbol °",
+    "input": "It is 72°F outside",
+    "expected": {
+      "masked": "It is {{0}}{{1}}F outside",
+      "variables": [
+        { "value": "72", "type": "number" },
+        { "value": "°", "type": "symbol" }
+      ],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "plus-minus ±",
+    "input": "Tolerance: ±5 mm",
+    "expected": {
+      "masked": "Tolerance: {{0}}{{1}} mm",
+      "variables": [
+        { "value": "±", "type": "symbol" },
+        { "value": "5", "type": "number" }
+      ],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "multiple symbols + number",
+    "input": "© 2024 Brand™",
+    "expected": {
+      "masked": "{{0}} {{1}} Brand{{2}}",
+      "variables": [
+        { "value": "©", "type": "symbol" },
+        { "value": "2024", "type": "number" },
+        { "value": "™", "type": "symbol" }
+      ],
+      "casePattern": "mixed"
+    }
+  }
+]

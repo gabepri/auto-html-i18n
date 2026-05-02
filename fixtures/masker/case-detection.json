@@ -1,0 +1,70 @@
+[
+  {
+    "name": "all-lowercase text → casePattern lower",
+    "input": "hello world",
+    "expected": {
+      "masked": "hello world",
+      "variables": [],
+      "casePattern": "lower"
+    }
+  },
+  {
+    "name": "ALL-UPPERCASE text → upper, key is lowercased",
+    "input": "HELLO WORLD",
+    "expected": {
+      "masked": "hello world",
+      "variables": [],
+      "casePattern": "upper"
+    }
+  },
+  {
+    "name": "Title Case text → mixed",
+    "input": "Hello World",
+    "expected": {
+      "masked": "Hello World",
+      "variables": [],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "uppercase with numbers → still upper, number masked",
+    "input": "HELLO 123",
+    "expected": {
+      "masked": "hello {{0}}",
+      "variables": [{ "value": "123", "type": "number" }],
+      "casePattern": "upper"
+    }
+  },
+  {
+    "name": "uppercase inside inline tag → upper",
+    "input": "<b>HELLO</b>",
+    "expected": {
+      "masked": "<b0>hello</b0>",
+      "variables": [],
+      "tagAttributes": { "b0": {} },
+      "casePattern": "upper"
+    }
+  },
+  {
+    "name": "no letters → defaults to lower",
+    "input": "123 456",
+    "expected": {
+      "masked": "{{0}} {{1}}",
+      "variables": [
+        { "value": "123", "type": "number" },
+        { "value": "456", "type": "number" }
+      ],
+      "casePattern": "lower"
+    }
+  },
+  {
+    "name": "uppercase with ignoreWord variable",
+    "input": "WELCOME TO ACME",
+    "config": { "ignoreWords": ["ACME"] },
+    "expected": {
+      "masked": "welcome to {{0}}",
+      "variables": [{ "value": "ACME", "type": "ignoreWord" }],
+      "casePattern": "upper"
+    }
+  }
+]

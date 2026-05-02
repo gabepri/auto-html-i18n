@@ -1,0 +1,29 @@
+[
+  {
+    "name": "MM/DD/YYYY date",
+    "input": "Born on 01/15/2024",
+    "expected": {
+      "masked": "Born on {{0}}",
+      "variables": [{ "value": "01/15/2024", "type": "date" }],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "YYYY-MM-DD date",
+    "input": "Date: 2024-01-15",
+    "expected": {
+      "masked": "Date: {{0}}",
+      "variables": [{ "value": "2024-01-15", "type": "date" }],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "DD.MM.YYYY date",
+    "input": "Date: 15.01.2024",
+    "expected": {
+      "masked": "Date: {{0}}",
+      "variables": [{ "value": "15.01.2024", "type": "date" }],
+      "casePattern": "mixed"
+    }
+  }
+]

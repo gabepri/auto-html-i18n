@@ -1,0 +1,63 @@
+[
+  {
+    "name": "https URL",
+    "input": "Visit https://example.com for more",
+    "expected": {
+      "masked": "Visit {{0}} for more",
+      "variables": [{ "value": "https://example.com", "type": "url" }],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "http URL with path",
+    "input": "Go to http://example.com/page",
+    "expected": {
+      "masked": "Go to {{0}}",
+      "variables": [{ "value": "http://example.com/page", "type": "url" }],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "URL with path, query, and fragment",
+    "input": "See https://example.com/path?q=1&b=2#section for details",
+    "expected": {
+      "masked": "See {{0}} for details",
+      "variables": [
+        { "value": "https://example.com/path?q=1&b=2#section", "type": "url" }
+      ],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "email address",
+    "input": "Contact us at support@example.com today",
+    "expected": {
+      "masked": "Contact us at {{0}} today",
+      "variables": [{ "value": "support@example.com", "type": "email" }],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "email with plus tag and dotted subdomain",
+    "input": "Email user.name+tag@sub.example.co.uk",
+    "expected": {
+      "masked": "Email {{0}}",
+      "variables": [
+        { "value": "user.name+tag@sub.example.co.uk", "type": "email" }
+      ],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "URL and email together",
+    "input": "Visit https://example.com or email info@example.com",
+    "expected": {
+      "masked": "Visit {{0}} or email {{1}}",
+      "variables": [
+        { "value": "https://example.com", "type": "url" },
+        { "value": "info@example.com", "type": "email" }
+      ],
+      "casePattern": "mixed"
+    }
+  }
+]

@@ -1,0 +1,98 @@
+[
+  {
+    "name": "single inline tag with attribute",
+    "input": "Click <a href=\"/login\">here</a> to login",
+    "expected": {
+      "masked": "Click <a0>here</a0> to login",
+      "variables": [],
+      "tagAttributes": { "a0": { "href": "/login" } },
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "multiple tags of the same type are indexed sequentially",
+    "input": "<a href=\"/a\">first</a> and <a href=\"/b\">second</a>",
+    "expected": {
+      "masked": "<a0>first</a0> and <a1>second</a1>",
+      "variables": [],
+      "tagAttributes": {
+        "a0": { "href": "/a" },
+        "a1": { "href": "/b" }
+      }
+    }
+  },
+  {
+    "name": "tags of different types each start at index 0",
+    "input": "<b class=\"bold\">hello</b> <span>world</span>",
+    "expected": {
+      "masked": "<b0>hello</b0> <span0>world</span0>",
+      "variables": [],
+      "tagAttributes": {
+        "b0": { "class": "bold" },
+        "span0": {}
+      }
+    }
+  },
+  {
+    "name": "all attributes are stripped from masked output",
+    "input": "<a href=\"/test\" class=\"link\" id=\"foo\">text</a>",
+    "expected": {
+      "masked": "<a0>text</a0>",
+      "variables": [],
+      "tagAttributes": {
+        "a0": { "href": "/test", "class": "link", "id": "foo" }
+      }
+    }
+  },
+  {
+    "name": "tag without attributes",
+    "input": "<b>bold text</b>",
+    "expected": {
+      "masked": "<b0>bold text</b0>",
+      "variables": [],
+      "tagAttributes": { "b0": {} }
+    }
+  },
+  {
+    "name": "tag not in allowedInlineTags is left as-is",
+    "input": "<div>text</div>",
+    "expected": {
+      "masked": "<div>text</div>",
+      "variables": []
+    }
+  },
+  {
+    "name": "nested inline tags",
+    "input": "<b>bold <i>and italic</i></b>",
+    "expected": {
+      "masked": "<b0>bold <i0>and italic</i0></b0>",
+      "variables": [],
+      "tagAttributes": { "b0": {}, "i0": {} }
+    }
+  },
+  {
+    "name": "variable inside inline tag",
+    "input": "Welcome <b>Mary</b>, you have 5 items",
+    "config": { "ignoreWords": ["Mary"] },
+    "expected": {
+      "masked": "Welcome <b0>{{0}}</b0>, you have {{1}} items",
+      "variables": [
+        { "value": "Mary", "type": "ignoreWord" },
+        { "value": "5", "type": "number" }
+      ],
+      "tagAttributes": { "b0": {} },
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "inline tag with href and ignoredWord inside",
+    "input": "Visit <a href=\"https://google.com\">Google</a> for more",
+    "config": { "ignoreWords": ["Google"] },
+    "expected": {
+      "masked": "Visit <a0>{{0}}</a0> for more",
+      "variables": [{ "value": "Google", "type": "ignoreWord" }],
+      "tagAttributes": { "a0": { "href": "https://google.com" } },
+      "casePattern": "mixed"
+    }
+  }
+]

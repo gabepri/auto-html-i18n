@@ -1,0 +1,89 @@
+[
+  {
+    "name": "standalone integer",
+    "input": "You have 5 apples",
+    "expected": {
+      "masked": "You have {{0}} apples",
+      "variables": [{ "value": "5", "type": "number" }],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "multiple integers in left-to-right order",
+    "input": "Page 3 of 10",
+    "expected": {
+      "masked": "Page {{0}} of {{1}}",
+      "variables": [
+        { "value": "3", "type": "number" },
+        { "value": "10", "type": "number" }
+      ],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "decimal number",
+    "input": "Total: 19.99",
+    "expected": {
+      "masked": "Total: {{0}}",
+      "variables": [{ "value": "19.99", "type": "number" }],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "negative number",
+    "input": "Temperature is -5 degrees",
+    "expected": {
+      "masked": "Temperature is {{0}} degrees",
+      "variables": [{ "value": "-5", "type": "number" }],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "text that is only a number",
+    "input": "42",
+    "expected": {
+      "masked": "{{0}}",
+      "variables": [{ "value": "42", "type": "number" }]
+    }
+  },
+  {
+    "name": "no numbers — pass-through",
+    "input": "Hello world",
+    "expected": {
+      "masked": "Hello world",
+      "variables": [],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "empty string",
+    "input": "",
+    "expected": {
+      "masked": "",
+      "variables": []
+    }
+  },
+  {
+    "name": "percentage masks number then percent symbol",
+    "input": "Progress: 85%",
+    "expected": {
+      "masked": "Progress: {{0}}{{1}}",
+      "variables": [
+        { "value": "85", "type": "number" },
+        { "value": "%", "type": "symbol" }
+      ],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "100% — leading number then symbol",
+    "input": "100%",
+    "expected": {
+      "masked": "{{0}}{{1}}",
+      "variables": [
+        { "value": "100", "type": "number" },
+        { "value": "%", "type": "symbol" }
+      ]
+    }
+  }
+]

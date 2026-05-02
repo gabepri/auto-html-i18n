@@ -1,0 +1,54 @@
+[
+  {
+    "name": "single HTML comment masked as variable",
+    "input": "hello <!--v-if-->",
+    "expected": {
+      "masked": "hello {{0}}",
+      "variables": [{ "value": "<!--v-if-->", "type": "comment" }]
+    }
+  },
+  {
+    "name": "multiple consecutive comments",
+    "input": "text <!--v-if--><!--v-if--><!--v-if-->",
+    "expected": {
+      "masked": "text {{0}}{{1}}{{2}}",
+      "variables": [
+        { "value": "<!--v-if-->", "type": "comment" },
+        { "value": "<!--v-if-->", "type": "comment" },
+        { "value": "<!--v-if-->", "type": "comment" }
+      ]
+    }
+  },
+  {
+    "name": "empty HTML comment",
+    "input": "text <!---->",
+    "expected": {
+      "masked": "text {{0}}",
+      "variables": [{ "value": "<!---->", "type": "comment" }]
+    }
+  },
+  {
+    "name": "comment with arbitrary content",
+    "input": "before <!-- some comment --> after",
+    "expected": {
+      "masked": "before {{0}} after",
+      "variables": [{ "value": "<!-- some comment -->", "type": "comment" }]
+    }
+  },
+  {
+    "name": "comments alongside inline tags",
+    "input": "<span class=\"x\">$15</span><span class=\"y\">/ exam <!--v-if--></span>",
+    "expected": {
+      "masked": "<span0>{{0}}{{1}}</span0><span1>/ exam {{2}}</span1>",
+      "variables": [
+        { "value": "$", "type": "symbol" },
+        { "value": "15", "type": "number" },
+        { "value": "<!--v-if-->", "type": "comment" }
+      ],
+      "tagAttributes": {
+        "span0": { "class": "x" },
+        "span1": { "class": "y" }
+      }
+    }
+  }
+]

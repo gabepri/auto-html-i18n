@@ -1,0 +1,66 @@
+[
+  {
+    "name": "leading whitespace is captured and trimmed",
+    "input": " hello world",
+    "expected": {
+      "masked": "hello world",
+      "variables": [],
+      "leadingWhitespace": " ",
+      "trailingWhitespace": ""
+    }
+  },
+  {
+    "name": "trailing whitespace is captured and trimmed",
+    "input": "hello world  ",
+    "expected": {
+      "masked": "hello world",
+      "variables": [],
+      "leadingWhitespace": "",
+      "trailingWhitespace": "  "
+    }
+  },
+  {
+    "name": "both leading and trailing whitespace",
+    "input": "  hello world  ",
+    "expected": {
+      "masked": "hello world",
+      "variables": [],
+      "leadingWhitespace": "  ",
+      "trailingWhitespace": "  "
+    }
+  },
+  {
+    "name": "leading space + variables: whitespace tracked",
+    "input": " 1 of 3",
+    "expected": {
+      "masked": "{{0}} of {{1}}",
+      "variables": [
+        { "value": "1", "type": "number" },
+        { "value": "3", "type": "number" }
+      ],
+      "leadingWhitespace": " ",
+      "trailingWhitespace": ""
+    }
+  },
+  {
+    "name": "tabs and newlines treated as whitespace",
+    "input": "\n\thello world\t",
+    "expected": {
+      "masked": "hello world",
+      "variables": [],
+      "leadingWhitespace": "\n\t",
+      "trailingWhitespace": "\t"
+    }
+  },
+  {
+    "name": "trim happens after case normalization",
+    "input": " HELLO WORLD ",
+    "expected": {
+      "masked": "hello world",
+      "variables": [],
+      "casePattern": "upper",
+      "leadingWhitespace": " ",
+      "trailingWhitespace": " "
+    }
+  }
+]

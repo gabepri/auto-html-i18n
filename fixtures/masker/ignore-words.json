@@ -1,0 +1,85 @@
+[
+  {
+    "name": "single ignoreWord matched case-sensitively",
+    "input": "Hello Mary",
+    "config": { "ignoreWords": ["Mary"] },
+    "expected": {
+      "masked": "Hello {{0}}",
+      "variables": [{ "value": "Mary", "type": "ignoreWord" }],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "ignoreWord with different case is not matched",
+    "input": "Hello mary",
+    "config": { "ignoreWords": ["Mary"] },
+    "expected": {
+      "masked": "Hello mary",
+      "variables": [],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "ignoreWord and number masked left-to-right",
+    "input": "John has 3 cats",
+    "config": { "ignoreWords": ["John"] },
+    "expected": {
+      "masked": "{{0}} has {{1}} cats",
+      "variables": [
+        { "value": "John", "type": "ignoreWord" },
+        { "value": "3", "type": "number" }
+      ]
+    }
+  },
+  {
+    "name": "multi-word ignoreWord",
+    "input": "Hello John Doe",
+    "config": { "ignoreWords": ["John Doe"] },
+    "expected": {
+      "masked": "Hello {{0}}",
+      "variables": [{ "value": "John Doe", "type": "ignoreWord" }],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "longer ignoreWord wins over shorter prefix",
+    "input": "Hello John Doe",
+    "config": { "ignoreWords": ["John", "John Doe"] },
+    "expected": {
+      "masked": "Hello {{0}}",
+      "variables": [{ "value": "John Doe", "type": "ignoreWord" }],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "ignoreWord with metadata propagates meta to variable",
+    "input": "Hello Mary",
+    "config": {
+      "ignoreWords": [{ "word": "Mary", "meta": { "gender": "female" } }]
+    },
+    "expected": {
+      "masked": "Hello {{0}}",
+      "variables": [
+        { "value": "Mary", "type": "ignoreWord", "meta": { "gender": "female" } }
+      ],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "mixed string and metadata entries — longer wins",
+    "input": "Hello Alice",
+    "config": {
+      "ignoreWords": [
+        { "word": "Al", "meta": { "gender": "male" } },
+        { "word": "Alice", "meta": { "gender": "female" } }
+      ]
+    },
+    "expected": {
+      "masked": "Hello {{0}}",
+      "variables": [
+        { "value": "Alice", "type": "ignoreWord", "meta": { "gender": "female" } }
+      ],
+      "casePattern": "mixed"
+    }
+  }
+]
