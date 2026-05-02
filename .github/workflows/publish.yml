@@ -24,4 +24,4 @@ jobs:
           cache-dependency-path: packages/js/package-lock.json
       - run: npm ci
       - run: npm run build
-      - run: npm publish --provenance
+      - run: npm publish --provenance --access public
