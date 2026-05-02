@@ -33,8 +33,8 @@ jobs:
 
       - name: Install splitsh-lite
         run: |
-          go install github.com/splitsh/lite@v2.0.0
-          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+          curl -sL https://github.com/splitsh/lite/releases/download/v1.0.1/lite_linux_amd64.tar.gz | tar -xz -C /tmp
+          sudo mv /tmp/splitsh-lite /usr/local/bin/
 
       - name: Determine ref to mirror
         id: ref
@@ -59,7 +59,7 @@ jobs:
         run: |
           set -euo pipefail
           git remote add split git@github.com:gabepri/auto-html-i18n-php.git
-          SHA=$(lite --prefix=packages/php)
+          SHA=$(splitsh-lite --prefix=packages/php)
           echo "Split SHA: $SHA"
           if [ -z "$TAG" ]; then
             echo "Mirroring main → main"
