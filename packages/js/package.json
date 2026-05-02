@@ -48,6 +48,7 @@
     "url": "https://github.com/gabepri/auto-dom-i18n.git"
   },
   "devDependencies": {
+    "@types/node": "^25.6.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
     "@vitest/coverage-v8": "^3.0.0",
