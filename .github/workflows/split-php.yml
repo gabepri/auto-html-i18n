@@ -1,0 +1,38 @@
+name: Split PHP package to auto-html-i18n-php
+
+# Mirrors packages/php/ to the auto-html-i18n-php repo with full git history.
+# That mirror is what Packagist watches — it's the single source of "the PHP package as a standalone repo".
+# - Push to main → mirror the latest main branch (so the default branch on the split repo stays current)
+# - Push tag v* → mirror with the tag attached, which is what triggers Packagist to create a new version
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to mirror (leave blank to mirror main only)'
+        required: false
+        type: string
+
+jobs:
+  split-php:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history required for clean subtree split
+
+      - name: Split packages/php → auto-html-i18n-php
+        uses: symplify/monorepo-split-github-action@v2.3.0
+        with:
+          package_directory: packages/php
+          repository_organization: gabepri
+          repository_name: auto-html-i18n-php
+          branch: main
+          tag: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+          user_name: gabepri
+          user_email: gabepriyev@incentfit.com
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SSH_PRIVATE_KEY: ${{ secrets.PHP_SPLIT_DEPLOY_KEY }}
