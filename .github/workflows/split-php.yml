@@ -22,7 +22,7 @@ jobs:
         with:
           fetch-depth: 0  # full history needed for splitsh
 
-      - uses: webfactory/ssh-agent@v0.9.1
+      - uses: webfactory/ssh-agent@v0.10.0
         with:
           ssh-private-key: ${{ secrets.PHP_SPLIT_DEPLOY_KEY }}
 
