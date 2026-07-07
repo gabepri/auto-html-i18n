@@ -705,6 +705,78 @@ describe('Masker', () => {
       );
       expect(result).toBe('5 ovejas');
     });
+
+    it('should degrade to the primary language subtag when the locale region is invalid', () => {
+      const masker = createMasker();
+      // 'es-41' is ill-formed BCP 47 (region subtags are 2 letters or 3 digits).
+      // Rather than dropping the translation, evaluation retries with 'es' —
+      // mirroring ICU4C's lenient locale fallback in the PHP port.
+      const result = masker.unmask(
+        '{0, plural, one {# oveja} other {# ovejas}}',
+        [v('5', 'number')],
+        new Map(),
+        'es-41',
+        '5 sheep'
+      );
+      expect(result).toBe('5 ovejas');
+    });
+
+    it('should use the base language plural rules after locale degradation', () => {
+      const masker = createMasker();
+      const result = masker.unmask(
+        '{0, plural, one {# oveja} other {# ovejas}}',
+        [v('1', 'number')],
+        new Map(),
+        'es-41',
+        '1 sheep'
+      );
+      expect(result).toBe('1 oveja');
+    });
+
+    it('should degrade ICU-style underscore locale ids to their language', () => {
+      const masker = createMasker();
+      const result = masker.unmask(
+        '{0, plural, one {# oveja} other {# ovejas}}',
+        [v('5', 'number')],
+        new Map(),
+        'es_419',
+        '5 sheep'
+      );
+      expect(result).toBe('5 ovejas');
+    });
+
+    it('should still render via the universal locale when the language is also invalid', () => {
+      const masker = createMasker();
+      // '419' cannot even be a language subtag; the final degradation step is
+      // the universal 'und' tag, so the translation still renders. Asserting
+      // the count-5 case keeps this deterministic: the pattern only defines
+      // one/other, and every locale maps 5 to a category that resolves to
+      // 'other' here — unlike count 1, whose category at this step depends on
+      // what the runtime resolves 'und' to.
+      const result = masker.unmask(
+        '{0, plural, one {# oveja} other {# ovejas}}',
+        [v('5', 'number')],
+        new Map(),
+        '419',
+        '5 sheep'
+      );
+      expect(result).toBe('5 ovejas');
+    });
+
+    it('should keep rendering the translation for a wholly invalid locale (never the original)', () => {
+      const masker = createMasker();
+      // The exact plural category at the terminal step follows the runtime's
+      // resolution of 'und', so only assert the translation was used
+      const result = masker.unmask(
+        '{0, plural, one {# oveja} other {# ovejas}}',
+        [v('1', 'number')],
+        new Map(),
+        '419',
+        '1 sheep'
+      );
+      expect(result).toContain('oveja');
+      expect(result).not.toBe('1 sheep');
+    });
   });
 
   describe('validateIcu()', () => {
@@ -757,6 +829,26 @@ describe('Masker', () => {
       const masker = createMasker();
       const result = masker.validateIcu('Hola mundo', [], 'es');
       expect(result).toEqual({ valid: true, format: 'plain', output: 'Hola mundo' });
+    });
+
+    it('should validate with degraded locale when the region subtag is invalid', () => {
+      const masker = createMasker();
+      const result = masker.validateIcu(
+        '{0, plural, one {# oveja} other {# ovejas}}',
+        [v('5', 'number')],
+        'es-41'
+      );
+      expect(result).toEqual({ valid: true, format: 'icu', output: '5 ovejas' });
+    });
+
+    it('should validate successfully for a wholly invalid locale via the universal fallback', () => {
+      const masker = createMasker();
+      const result = masker.validateIcu(
+        '{0, plural, one {# oveja} other {# ovejas}}',
+        [v('5', 'number')],
+        '419'
+      );
+      expect(result).toEqual({ valid: true, format: 'icu', output: '5 ovejas' });
     });
   });
 

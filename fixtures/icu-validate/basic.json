@@ -64,5 +64,12 @@
     "variables": [{ "value": "John", "type": "ignoreWord" }],
     "locale": "es",
     "expected": { "valid": true, "format": "simple", "output": "John y {1}" }
+  },
+  {
+    "name": "invalid region subtag still validates using base language rules",
+    "translated": "{0, plural, one {# oveja} other {# ovejas}}",
+    "variables": [{ "value": "5", "type": "number" }],
+    "locale": "es-41",
+    "expected": { "valid": true, "format": "icu", "output": "5 ovejas" }
   }
 ]

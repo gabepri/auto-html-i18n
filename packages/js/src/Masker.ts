@@ -374,6 +374,32 @@ export class Masker {
     return { value: match[0], type: 'symbol' };
   }
 
+  /**
+   * Constructs the message format, degrading the locale stepwise when Intl
+   * rejects it as ill-formed BCP 47 (a RangeError): first the primary language
+   * subtag ('es-41' → 'es'), then the universal 'und' tag. This mirrors ICU4C's
+   * lenient locale fallback in the PHP port, so a bad locale never causes the
+   * translation itself to be dropped. Note 'und' resolves to the runtime's
+   * default locale, not ICU's root — the terminal step's exact plural rules
+   * are the one place the two ports may differ.
+   */
+  private buildMessageFormat(icuPattern: string, locale: string): IntlMessageFormat {
+    try {
+      return new IntlMessageFormat(icuPattern, locale);
+    } catch (err) {
+      if (!(err instanceof RangeError)) throw err; // not a locale problem
+      const language = locale.split(/[-_]/)[0];
+      if (language && language !== locale) {
+        try {
+          return new IntlMessageFormat(icuPattern, language);
+        } catch (err2) {
+          if (!(err2 instanceof RangeError)) throw err2;
+        }
+      }
+      return new IntlMessageFormat(icuPattern, 'und');
+    }
+  }
+
   private evaluateICU(pattern: string, variables: VariableInfo[], locale: string): string {
     // Temporarily replace all HTML tags to prevent ICU parser conflicts
     const tagPlaceholders: [string, string][] = [];
@@ -383,7 +409,7 @@ export class Masker {
       return placeholder;
     });
 
-    const mf = new IntlMessageFormat(icuPattern, locale);
+    const mf = this.buildMessageFormat(icuPattern, locale);
     const args: Record<string, string | number> = {};
 
     for (let i = 0; i < variables.length; i++) {

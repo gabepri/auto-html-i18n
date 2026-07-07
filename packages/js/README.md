@@ -451,6 +451,7 @@ Use ICU MessageFormat when:
    - **ICU format** (`{0}`): Evaluated client-side with `intl-messageformat`
 3. The library auto-detects the format: double-brace `{{0}}` = simple, single-brace `{0}` = ICU.
 4. If an ICU pattern fails to parse or evaluate (malformed pattern, missing arguments), the element falls back to its original untranslated text — the raw pattern is never rendered to users.
+5. **Locale handling:** the JS `Intl` platform strictly validates BCP 47 tags. If the configured locale is ill-formed (e.g. `es-41` — region subtags are 2 letters or 3 digits), evaluation degrades stepwise instead of failing: first the primary language subtag (`es`), then the universal `und` tag. A bad locale therefore never causes the translation itself to be dropped. This mirrors the PHP port, where ICU accepts any locale id natively and resolves data through its own fallback chain — with one difference at the very last step: PHP's chain ends at ICU's root locale, while `und` resolves to the JS runtime's default locale, so the exact plural rules chosen for a *wholly* invalid locale can differ between the ports.
 
 To catch bad patterns before they reach the DOM, dry-run them with [`validateIcu` / `validateTranslation`](#validateicutranslated-variables-locale) — e.g. in your backend's response pipeline or translation tooling.
 

@@ -54,5 +54,37 @@
     "locale": "es",
     "original": "Mary bought it",
     "expected": "Mary bought it"
+  },
+  {
+    "name": "invalid region subtag degrades to base language rules",
+    "translated": "{0, plural, one {# oveja} other {# ovejas}}",
+    "variables": [{ "value": "5", "type": "number" }],
+    "locale": "es-41",
+    "original": "5 sheep",
+    "expected": "5 ovejas"
+  },
+  {
+    "name": "invalid region subtag keeps the base language singular rules",
+    "translated": "{0, plural, one {# oveja} other {# ovejas}}",
+    "variables": [{ "value": "1", "type": "number" }],
+    "locale": "es-41",
+    "original": "1 sheep",
+    "expected": "1 oveja"
+  },
+  {
+    "name": "underscore-style locale ids still evaluate",
+    "translated": "{0, plural, one {# oveja} other {# ovejas}}",
+    "variables": [{ "value": "5", "type": "number" }],
+    "locale": "es_419",
+    "original": "5 sheep",
+    "expected": "5 ovejas"
+  },
+  {
+    "name": "wholly invalid locales still render the translation via a universal fallback",
+    "translated": "{0, plural, one {# oveja} other {# ovejas}}",
+    "variables": [{ "value": "5", "type": "number" }],
+    "locale": "419",
+    "original": "5 sheep",
+    "expected": "5 ovejas"
   }
 ]
