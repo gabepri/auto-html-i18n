@@ -38,5 +38,21 @@
     "locale": "es",
     "original": "<a href=\"/items\">3 items</a>",
     "expected": "<a href=\"/items\">3 items</a>"
+  },
+  {
+    "name": "pattern referencing a missing variable falls back to the original",
+    "translated": "{0} tiene {1} gatos",
+    "variables": [{ "value": "John", "type": "ignoreWord" }],
+    "locale": "es",
+    "original": "John has cats",
+    "expected": "John has cats"
+  },
+  {
+    "name": "pattern selecting on absent metadata falls back to the original",
+    "translated": "{0_gender, select, female {ella compró} other {él compró}}",
+    "variables": [{ "value": "Mary", "type": "ignoreWord" }],
+    "locale": "es",
+    "original": "Mary bought it",
+    "expected": "Mary bought it"
   }
 ]
