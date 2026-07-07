@@ -1,5 +1,5 @@
 import { IntlMessageFormat } from 'intl-messageformat';
-import type { CasePattern, IgnoreWordEntry, MaskerConfig, MaskResult, VariableInfo, VariableType } from './types';
+import type { CasePattern, IcuValidationResult, IgnoreWordEntry, MaskerConfig, MaskResult, TranslationFormat, VariableInfo, VariableType } from './types';
 
 interface IgnoreWordInternal {
   word: string;
@@ -169,13 +169,11 @@ export class Masker {
     }
 
     // Phase 1: Detect format and restore variables
-    // {{N}} = simple substitution (our format), {N} or {N, plural/select, ...} = ICU
-    const hasDoubleBrace = /\{\{\d+\}\}/.test(translated);
-    const isICU = !hasDoubleBrace && /\{\d+/.test(translated);
+    const format = this.detectFormat(translated);
 
     let result: string;
 
-    if (isICU && locale) {
+    if (format === 'icu' && locale) {
       try {
         result = this.evaluateICU(translated, variables, locale);
       } catch {
@@ -197,8 +195,97 @@ export class Masker {
     }
 
     // Phase 2: Restore tag attributes
-    // Replace <tagN> with <tag attrs...> and </tagN> with </tag>
-    result = result.replace(
+    result = this.restoreTagAttributes(result, tagAttributes);
+
+    // Phase 3: Sanitize — escape any HTML tags not in the allowlist
+    result = this.sanitizeTags(result);
+
+    return result;
+  }
+
+  /**
+   * Dry-runs a translation string exactly as consumption would: detects the
+   * format ({{N}} simple, {N ICU, or plain), evaluates it against the given
+   * variables, and reports the rendered output or the failure reason.
+   */
+  validateIcu(
+    translated: string,
+    variables: VariableInfo[],
+    locale: string,
+    tagAttributes?: Map<string, Record<string, string>>
+  ): IcuValidationResult {
+    const format = this.detectFormat(translated);
+
+    let output: string;
+    if (format === 'icu') {
+      try {
+        output = this.evaluateICU(translated, variables, locale);
+      } catch (err) {
+        return { valid: false, format, error: err instanceof Error ? err.message : String(err) };
+      }
+    } else if (format === 'simple') {
+      const missing = new Set<string>();
+      output = translated.replace(/\{\{(\d+)\}\}/g, (match, indexStr: string) => {
+        const value = variables[parseInt(indexStr, 10)]?.value;
+        if (value === undefined) {
+          missing.add(match);
+          return match;
+        }
+        return value;
+      });
+      if (missing.size > 0) {
+        return {
+          valid: false,
+          format,
+          error: `substitution references ${[...missing].join(', ')} but only ${variables.length} variable(s) were provided`,
+        };
+      }
+    } else {
+      output = translated;
+    }
+
+    if (tagAttributes) {
+      output = this.restoreTagAttributes(output, tagAttributes);
+    }
+    output = this.sanitizeTags(output);
+
+    return { valid: true, format, output };
+  }
+
+  /**
+   * Masks `original` to derive the variables and tag attributes consumption
+   * would see, then validates `translated` against them — including the case
+   * pattern and edge whitespace the rendered output would carry.
+   */
+  validateTranslation(original: string, translated: string, locale: string): IcuValidationResult {
+    const maskResult = this.mask(original);
+    const result = this.validateIcu(translated, maskResult.variables, locale, maskResult.tagAttributes);
+    if (!result.valid || result.output === undefined) {
+      return result;
+    }
+    const output = maskResult.leadingWhitespace
+      + this.applyCasePattern(result.output, maskResult.casePattern)
+      + maskResult.trailingWhitespace;
+    return { ...result, output };
+  }
+
+  /**
+   * How a translation string will be consumed: {{N}} = simple substitution
+   * (our format), {N} or {N, plural/select, ...} = ICU, otherwise plain text.
+   * Single source of truth for both unmask() and validateIcu().
+   */
+  private detectFormat(translated: string): TranslationFormat {
+    if (/\{\{\d+\}\}/.test(translated)) return 'simple';
+    if (/\{\d+/.test(translated)) return 'icu';
+    return 'plain';
+  }
+
+  /** Replaces <tagN> with <tag attrs...> and </tagN> with </tag>. */
+  private restoreTagAttributes(
+    text: string,
+    tagAttributes: Map<string, Record<string, string>>
+  ): string {
+    let result = text.replace(
       /<(\w+?)(\d+)>/g,
       (_match, tagName: string, indexStr: string) => {
         const tagKey = `${tagName}${indexStr}`;
@@ -220,7 +307,6 @@ export class Masker {
       }
     );
 
-    // Replace closing tags: </tagN> -> </tag>
     result = result.replace(
       /<\/(\w+?)(\d+)>/g,
       (_match, tagName: string, indexStr: string) => {
@@ -231,9 +317,6 @@ export class Masker {
         return `</${tagName}${indexStr}>`; // Not a known tag, leave as-is
       }
     );
-
-    // Phase 3: Sanitize — escape any HTML tags not in the allowlist
-    result = this.sanitizeTags(result);
 
     return result;
   }

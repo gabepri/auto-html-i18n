@@ -1,4 +1,4 @@
-import type { I18nConfig, I18nStatus, IgnoreWordEntry, TranslationEntry, TranslationItem } from './types';
+import type { I18nConfig, I18nStatus, IcuValidationResult, IgnoreWordEntry, TranslationEntry, TranslationItem, VariableInfo } from './types';
 import { Store } from './Store';
 import { Queue } from './Queue';
 import { Masker } from './Masker';
@@ -188,6 +188,22 @@ export class I18nObserver {
     this.currentLocale = locale;
     this.translator.setLocale(locale);
     this.translator.retranslateAll();
+  }
+
+  /**
+   * Dry-runs a translation string against the given variables, exactly as the
+   * library would consume it. Defaults to the current locale.
+   */
+  validateIcu(translated: string, variables: VariableInfo[] = [], locale?: string): IcuValidationResult {
+    return this.masker.validateIcu(translated, variables, locale ?? this.currentLocale);
+  }
+
+  /**
+   * Masks `original` with this instance's config (ignoreWords, inline tags) to
+   * derive its variables, then validates `translated` against them.
+   */
+  validateTranslation(original: string, translated: string, locale?: string): IcuValidationResult {
+    return this.masker.validateTranslation(original, translated, locale ?? this.currentLocale);
   }
 
   getIgnoreWords(): IgnoreWordEntry[] {

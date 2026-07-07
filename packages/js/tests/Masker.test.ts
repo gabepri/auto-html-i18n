@@ -707,6 +707,111 @@ describe('Masker', () => {
     });
   });
 
+  describe('validateIcu()', () => {
+    it('should report a valid ICU pattern with its rendered output', () => {
+      const masker = createMasker();
+      const result = masker.validateIcu(
+        '{0, plural, one {# oveja} other {# ovejas}}',
+        [v('5', 'number')],
+        'es'
+      );
+      expect(result).toEqual({ valid: true, format: 'icu', output: '5 ovejas' });
+    });
+
+    it('should report a malformed ICU pattern as invalid with an error', () => {
+      const masker = createMasker();
+      const result = masker.validateIcu('{0, plural, {broken}', [v('5', 'number')], 'es');
+      expect(result.valid).toBe(false);
+      expect(result.format).toBe('icu');
+      expect(result.error).toBeTruthy();
+      expect(result.output).toBeUndefined();
+    });
+
+    it('should report an ICU pattern referencing a missing variable as invalid', () => {
+      const masker = createMasker();
+      const result = masker.validateIcu('{0} tiene {1} gatos', [v('John', 'ignoreWord')], 'es');
+      expect(result.valid).toBe(false);
+      expect(result.format).toBe('icu');
+      expect(result.error).toBeTruthy();
+    });
+
+    it('should validate simple substitution and render its output', () => {
+      const masker = createMasker();
+      const result = masker.validateIcu(
+        '{{0}} tiene {{1}} gatos',
+        [v('John', 'ignoreWord'), v('3', 'number')],
+        'es'
+      );
+      expect(result).toEqual({ valid: true, format: 'simple', output: 'John tiene 3 gatos' });
+    });
+
+    it('should report simple substitution with an out-of-range index as invalid', () => {
+      const masker = createMasker();
+      const result = masker.validateIcu('Hola {{2}}', [v('John', 'ignoreWord')], 'es');
+      expect(result.valid).toBe(false);
+      expect(result.format).toBe('simple');
+      expect(result.error).toContain('{{2}}');
+    });
+
+    it('should validate plain text as plain format', () => {
+      const masker = createMasker();
+      const result = masker.validateIcu('Hola mundo', [], 'es');
+      expect(result).toEqual({ valid: true, format: 'plain', output: 'Hola mundo' });
+    });
+  });
+
+  describe('validateTranslation()', () => {
+    it('should derive variables from the original text exactly like consumption', () => {
+      const masker = createMasker({ ignoreWords: ['John'] });
+      const result = masker.validateTranslation(
+        'John has 3 cats',
+        '{{0}} tiene {{1}} gatos',
+        'es'
+      );
+      expect(result).toEqual({ valid: true, format: 'simple', output: 'John tiene 3 gatos' });
+    });
+
+    it('should validate an ICU translation against the original text', () => {
+      const masker = createMasker();
+      const result = masker.validateTranslation(
+        '5 sheep',
+        '{0, plural, one {# oveja} other {# ovejas}}',
+        'es'
+      );
+      expect(result).toEqual({ valid: true, format: 'icu', output: '5 ovejas' });
+    });
+
+    it('should report an ICU translation referencing a variable the original lacks', () => {
+      const masker = createMasker({ ignoreWords: ['John'] });
+      const result = masker.validateTranslation(
+        'John has 3 cats',
+        '{0} tiene {2} gatos',
+        'es'
+      );
+      expect(result.valid).toBe(false);
+      expect(result.format).toBe('icu');
+      expect(result.error).toBeTruthy();
+    });
+
+    it('should restore inline tag attributes in the output like consumption does', () => {
+      const masker = createMasker();
+      const result = masker.validateTranslation(
+        'Click <a href="/x">here</a>',
+        'Clic <a0>aquí</a0>',
+        'es'
+      );
+      expect(result.valid).toBe(true);
+      expect(result.output).toBe('Clic <a href="/x">aquí</a>');
+    });
+
+    it('should apply the case pattern and edge whitespace like consumption does', () => {
+      const masker = createMasker();
+      const result = masker.validateTranslation('  CLICK HERE ', 'haz clic aquí', 'es');
+      expect(result.valid).toBe(true);
+      expect(result.output).toBe('  HAZ CLIC AQUÍ ');
+    });
+  });
+
   describe('roundtrip: mask then unmask', () => {
     it('should roundtrip simple text with numbers', () => {
       const masker = createMasker();

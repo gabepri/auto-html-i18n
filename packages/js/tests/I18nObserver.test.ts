@@ -765,4 +765,52 @@ describe('I18nObserver', () => {
       expect(i18n.getCache('fr')).toEqual({});
     });
   });
+
+  describe('validateIcu() / validateTranslation()', () => {
+    it('should validate ICU against the current locale by default', () => {
+      const i18n = new I18nObserver(createConfig()); // locale: es
+      const result = i18n.validateIcu(
+        '{0, plural, one {# oveja} other {# ovejas}}',
+        [{ value: '5', type: 'number' }]
+      );
+      expect(result).toEqual({ valid: true, format: 'icu', output: '5 ovejas' });
+    });
+
+    it('should accept an explicit locale override', () => {
+      const i18n = new I18nObserver(createConfig());
+      const result = i18n.validateIcu(
+        '{0, plural, one {# item} other {# items}}',
+        [{ value: '1', type: 'number' }],
+        'en'
+      );
+      expect(result).toEqual({ valid: true, format: 'icu', output: '1 item' });
+    });
+
+    it('should report invalid ICU with an error', () => {
+      const i18n = new I18nObserver(createConfig());
+      const result = i18n.validateIcu('{0, plural, {broken}', [{ value: '5', type: 'number' }]);
+      expect(result.valid).toBe(false);
+      expect(result.error).toBeTruthy();
+    });
+
+    it('should validate end-to-end using the instance ignoreWords config', () => {
+      const i18n = new I18nObserver(createConfig({
+        ignoreWords: [{ word: 'Mary', meta: { gender: 'female' } }],
+      }));
+      const result = i18n.validateTranslation(
+        'Mary bought 5 sheep',
+        '{0_gender, select, female {{0} compró} other {{0} compró}} {1, plural, one {# oveja} other {# ovejas}}'
+      );
+      expect(result.valid).toBe(true);
+      expect(result.format).toBe('icu');
+      expect(result.output).toBe('Mary compró 5 ovejas');
+    });
+
+    it('should reject a translation that the same input would fail to render', () => {
+      const i18n = new I18nObserver(createConfig());
+      const result = i18n.validateTranslation('5 sheep', '{2, plural, one {# oveja} other {# ovejas}}');
+      expect(result.valid).toBe(false);
+      expect(result.error).toBeTruthy();
+    });
+  });
 });

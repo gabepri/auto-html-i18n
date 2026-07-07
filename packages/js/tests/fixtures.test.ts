@@ -32,11 +32,25 @@ interface UnmaskFixtureCase {
   expected: string;
 }
 
+interface ValidateFixtureCase {
+  name: string;
+  translated: string;
+  variables?: VariableInfo[];
+  locale: string;
+  config?: FixtureCase['config'];
+  expected: {
+    valid: boolean;
+    format: 'icu' | 'simple' | 'plain';
+    output?: string;
+  };
+}
+
 const DEFAULT_ALLOWED_TAGS = ['a', 'b', 'i', 'u', 'strong', 'em', 'span', 'small', 'mark', 'del'];
 
 // Vitest runs from the package directory (packages/js); fixtures live at the repo root.
 const fixturesDir = resolve(process.cwd(), '../../fixtures/masker');
 const unmaskFixturesDir = resolve(process.cwd(), '../../fixtures/unmask');
+const validateFixturesDir = resolve(process.cwd(), '../../fixtures/icu-validate');
 
 function loadFixtureDir<T>(dir: string): Array<{ file: string; cases: T[] }> {
   return readdirSync(dir)
@@ -100,6 +114,30 @@ describe('shared unmask fixtures', () => {
           );
 
           expect(result).toBe(c.expected);
+        });
+      }
+    });
+  }
+});
+
+describe('shared ICU validation fixtures', () => {
+  for (const { file, cases } of loadFixtureDir<ValidateFixtureCase>(validateFixturesDir)) {
+    describe(file, () => {
+      for (const c of cases) {
+        it(c.name, () => {
+          const masker = new Masker(buildConfig(c.config));
+
+          const result = masker.validateIcu(c.translated, c.variables ?? [], c.locale);
+
+          expect(result.valid).toBe(c.expected.valid);
+          expect(result.format).toBe(c.expected.format);
+          if (c.expected.output !== undefined) {
+            expect(result.output).toBe(c.expected.output);
+          }
+          if (!c.expected.valid) {
+            // Error text is engine-specific; only its presence is part of the contract
+            expect(result.error).toBeTruthy();
+          }
         });
       }
     });

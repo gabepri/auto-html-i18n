@@ -1,0 +1,68 @@
+[
+  {
+    "name": "valid ICU plural evaluates and reports the rendered output",
+    "translated": "{0, plural, one {# oveja} other {# ovejas}}",
+    "variables": [{ "value": "5", "type": "number" }],
+    "locale": "es",
+    "expected": { "valid": true, "format": "icu", "output": "5 ovejas" }
+  },
+  {
+    "name": "valid ICU select with ignoreWord metadata",
+    "translated": "{0_gender, select, female {ella compró} other {él compró}}",
+    "variables": [{ "value": "Mary", "type": "ignoreWord", "meta": { "gender": "female" } }],
+    "locale": "es",
+    "expected": { "valid": true, "format": "icu", "output": "ella compró" }
+  },
+  {
+    "name": "malformed ICU pattern is invalid",
+    "translated": "{0, plural, {broken}",
+    "variables": [{ "value": "5", "type": "number" }],
+    "locale": "es",
+    "expected": { "valid": false, "format": "icu" }
+  },
+  {
+    "name": "ICU pattern referencing a missing variable is invalid",
+    "translated": "{0} tiene {1} gatos",
+    "variables": [{ "value": "John", "type": "ignoreWord" }],
+    "locale": "es",
+    "expected": { "valid": false, "format": "icu" }
+  },
+  {
+    "name": "ICU pattern selecting on absent metadata is invalid",
+    "translated": "{0_gender, select, female {ella} other {él}}",
+    "variables": [{ "value": "Mary", "type": "ignoreWord" }],
+    "locale": "es",
+    "expected": { "valid": false, "format": "icu" }
+  },
+  {
+    "name": "double-brace placeholders validate as simple substitution",
+    "translated": "{{0}} tiene {{1}} gatos",
+    "variables": [
+      { "value": "John", "type": "ignoreWord" },
+      { "value": "3", "type": "number" }
+    ],
+    "locale": "es",
+    "expected": { "valid": true, "format": "simple", "output": "John tiene 3 gatos" }
+  },
+  {
+    "name": "simple substitution referencing a missing variable index is invalid",
+    "translated": "Hola {{2}}",
+    "variables": [{ "value": "John", "type": "ignoreWord" }],
+    "locale": "es",
+    "expected": { "valid": false, "format": "simple" }
+  },
+  {
+    "name": "text without placeholders validates as plain",
+    "translated": "Hola mundo",
+    "variables": [],
+    "locale": "es",
+    "expected": { "valid": true, "format": "plain", "output": "Hola mundo" }
+  },
+  {
+    "name": "mixed braces are consumed as simple substitution, leaving single-brace refs literal",
+    "translated": "{{0}} y {1}",
+    "variables": [{ "value": "John", "type": "ignoreWord" }],
+    "locale": "es",
+    "expected": { "valid": true, "format": "simple", "output": "John y {1}" }
+  }
+]

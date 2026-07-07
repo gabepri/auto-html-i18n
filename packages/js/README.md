@@ -282,6 +282,39 @@ Retrieves the translation string from the cache. Returns `undefined` if the key 
 const translation = i18n.getTranslation("Save", "es"); // "Guardar"
 ```
 
+### `validateIcu(translated, variables?, locale?)`
+
+Dry-runs a translation string against the given variables, exactly as the library would consume it. Use it to validate backend responses or translation-memory entries before caching them — with the same `variables` your backend received in the `onMissingTranslation` items. Defaults to the current locale.
+
+Returns `{ valid, format, error?, output? }`:
+
+* `valid`: whether consumption would render this string successfully
+* `format`: how the string will be treated — `'icu'` (single-brace `{0}`), `'simple'` (double-brace `{{0}}` substitution), or `'plain'`. Check this matches your intent: `{{0}}` inside an intended-ICU pattern is silently consumed as simple substitution.
+* `error`: the failure reason when invalid (malformed pattern, missing arguments, out-of-range `{{N}}` index); wording is engine-specific
+* `output`: the string consumption would render, when valid
+
+```javascript
+i18n.validateIcu('{0, plural, one {# oveja} other {# ovejas}}', [{ value: '5', type: 'number' }]);
+// { valid: true, format: 'icu', output: '5 ovejas' }
+
+i18n.validateIcu('{0, plural, {broken}', [{ value: '5', type: 'number' }]);
+// { valid: false, format: 'icu', error: '…' }
+```
+
+### `validateTranslation(original, translated, locale?)`
+
+End-to-end variant of `validateIcu`: masks `original` with this instance's config (ignoreWords, inline tags) to derive its variables, then validates `translated` against them. The `output` includes restored tag attributes, case pattern, and edge whitespace — exactly what would be written to the DOM.
+
+```javascript
+const i18n = new I18nObserver({ locale: 'es', ignoreWords: ['John'], /* … */ });
+
+i18n.validateTranslation('John has 3 cats', '{{0}} tiene {{1}} gatos');
+// { valid: true, format: 'simple', output: 'John tiene 3 gatos' }
+
+i18n.validateTranslation('5 sheep', '{2, plural, one {# oveja} other {# ovejas}}');
+// { valid: false, format: 'icu', error: '…' } — {2} doesn't exist for this source text
+```
+
 ### `setCache(locale, data)`
 
 Manually load translations into the cache. This bypasses the network queue and marks these keys as 'resolved'.
@@ -418,6 +451,8 @@ Use ICU MessageFormat when:
    - **ICU format** (`{0}`): Evaluated client-side with `intl-messageformat`
 3. The library auto-detects the format: double-brace `{{0}}` = simple, single-brace `{0}` = ICU.
 4. If an ICU pattern fails to parse or evaluate (malformed pattern, missing arguments), the element falls back to its original untranslated text — the raw pattern is never rendered to users.
+
+To catch bad patterns before they reach the DOM, dry-run them with [`validateIcu` / `validateTranslation`](#validateicutranslated-variables-locale) — e.g. in your backend's response pipeline or translation tooling.
 
 ### Variable Arguments
 

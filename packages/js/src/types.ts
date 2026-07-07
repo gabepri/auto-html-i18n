@@ -84,6 +84,19 @@ export interface MaskerConfig {
   allowedInlineTags: string[];
 }
 
+/** How the library will treat a translation string when consuming it */
+export type TranslationFormat = 'icu' | 'simple' | 'plain';
+
+/** Result of dry-run validating a translation string against variables */
+export interface IcuValidationResult {
+  valid: boolean;
+  format: TranslationFormat;
+  /** Failure reason when invalid; wording is engine-specific */
+  error?: string;
+  /** What consumption would render, present when valid */
+  output?: string;
+}
+
 // ---- Store Types ----
 
 export type EntryStatus = 'pending' | 'resolved' | 'reported';

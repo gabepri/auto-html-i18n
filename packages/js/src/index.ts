@@ -10,4 +10,6 @@ export type {
   VariableType,
   IgnoreWordEntry,
   I18nStatus,
+  IcuValidationResult,
+  TranslationFormat,
 } from './types';
