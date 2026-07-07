@@ -1,0 +1,49 @@
+[
+  {
+    "name": "a non-allowed tag pair is masked as opaque markup variables",
+    "input": "<div>text</div>",
+    "expected": {
+      "masked": "{{0}}text{{1}}",
+      "variables": [
+        { "value": "<div>", "type": "markup" },
+        { "value": "</div>", "type": "markup" }
+      ]
+    }
+  },
+  {
+    "name": "volatile attributes on a non-allowed tag stay out of the key",
+    "input": "See <img src=\"a.png\" id=\"x9\"> now",
+    "expected": {
+      "masked": "See {{0}} now",
+      "variables": [
+        { "value": "<img src=\"a.png\" id=\"x9\">", "type": "markup" }
+      ],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "a whole svg subtree masks to opaque markup, not raw markup in the key",
+    "input": "a<svg viewBox=\"0 0 1 1\"><path d=\"M0 0\"></path></svg>b",
+    "expected": {
+      "masked": "a{{0}}{{1}}{{2}}{{3}}b",
+      "variables": [
+        { "value": "<svg viewBox=\"0 0 1 1\">", "type": "markup" },
+        { "value": "<path d=\"M0 0\">", "type": "markup" },
+        { "value": "</path>", "type": "markup" },
+        { "value": "</svg>", "type": "markup" }
+      ]
+    }
+  },
+  {
+    "name": "allowed inline tags still normalize while non-allowed tags become markup",
+    "input": "Click <b>here</b> <input type=\"checkbox\"> now",
+    "expected": {
+      "masked": "Click <b0>here</b0> {{0}} now",
+      "variables": [
+        { "value": "<input type=\"checkbox\">", "type": "markup" }
+      ],
+      "tagAttributes": { "b0": {} },
+      "casePattern": "mixed"
+    }
+  }
+]

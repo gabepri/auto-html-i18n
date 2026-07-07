@@ -1,0 +1,38 @@
+[
+  {
+    "name": "nested same-name tags close innermost-first (stack, not encounter order)",
+    "input": "<span>outer <span>inner</span> tail</span>",
+    "expected": {
+      "masked": "<span0>outer <span1>inner</span1> tail</span0>",
+      "variables": [],
+      "tagAttributes": { "span0": {}, "span1": {} }
+    }
+  },
+  {
+    "name": "triple-nested same-name tags",
+    "input": "<b>a <b>b <b>c</b></b></b>",
+    "expected": {
+      "masked": "<b0>a <b1>b <b2>c</b2></b1></b0>",
+      "variables": [],
+      "tagAttributes": { "b0": {}, "b1": {}, "b2": {} }
+    }
+  },
+  {
+    "name": "nested same-name tags preserve per-depth attributes",
+    "input": "<a href=\"/out\">out <a href=\"/in\">in</a></a>",
+    "expected": {
+      "masked": "<a0>out <a1>in</a1></a0>",
+      "variables": [],
+      "tagAttributes": { "a0": { "href": "/out" }, "a1": { "href": "/in" } }
+    }
+  },
+  {
+    "name": "sibling and nested same-name tags interleave correctly",
+    "input": "<span>a <span>b</span> c <span>d</span></span>",
+    "expected": {
+      "masked": "<span0>a <span1>b</span1> c <span2>d</span2></span0>",
+      "variables": [],
+      "tagAttributes": { "span0": {}, "span1": {}, "span2": {} }
+    }
+  }
+]

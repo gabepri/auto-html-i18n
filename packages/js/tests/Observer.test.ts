@@ -188,6 +188,37 @@ describe('Observer', () => {
 
       observer.stop();
     });
+
+    it('should not aggregate when a deep descendant (not a direct child) is non-inline', () => {
+      // FormKit checkbox option: the wrapper's direct children are both <span>
+      // (inline-allowed), but one span contains an <input>/<svg> subtree.
+      root.innerHTML =
+        '<label class="fk-wrapper"><span class="fk-inner">' +
+        '<input type="checkbox" value="Environmental">' +
+        '<span class="fk-decorator"><span class="fk-icon"><svg viewBox="0 0 24 24"><path d="m10 14"></path></svg></span></span>' +
+        '</span><span class="fk-label">Environmental</span></label>';
+      const { observer, onTextFound } = createObserver(root);
+      observer.start();
+
+      // Should report just the clean "Environmental" label, never the svg/input blob.
+      expect(onTextFound).toHaveBeenCalledTimes(1);
+      const [element, text] = onTextFound.mock.calls[0]!;
+      expect(element.tagName).toBe('SPAN');
+      expect(text).toBe('Environmental');
+
+      observer.stop();
+    });
+
+    it('should still aggregate when all descendants are inline-allowed', () => {
+      root.innerHTML = '<p>Hello <b><i>bold italic</i></b> world</p>';
+      const { observer, onTextFound } = createObserver(root);
+      observer.start();
+
+      expect(onTextFound).toHaveBeenCalledTimes(1);
+      expect(onTextFound.mock.calls[0]![1]).toBe('Hello <b><i>bold italic</i></b> world');
+
+      observer.stop();
+    });
   });
 
   describe('mutation observation', () => {

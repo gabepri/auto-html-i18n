@@ -54,11 +54,14 @@
     }
   },
   {
-    "name": "tag not in allowedInlineTags is left as-is",
+    "name": "tag not in allowedInlineTags is masked as opaque markup (see non-allowed-tags.json)",
     "input": "<div>text</div>",
     "expected": {
-      "masked": "<div>text</div>",
-      "variables": []
+      "masked": "{{0}}text{{1}}",
+      "variables": [
+        { "value": "<div>", "type": "markup" },
+        { "value": "</div>", "type": "markup" }
+      ]
     }
   },
   {

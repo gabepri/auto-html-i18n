@@ -14,7 +14,7 @@ export interface TranslationItemDebug {
 }
 
 /** The detected type of a masked variable */
-export type VariableType = 'ignoreWord' | 'number' | 'date' | 'url' | 'email' | 'symbol' | 'comment';
+export type VariableType = 'ignoreWord' | 'number' | 'date' | 'url' | 'email' | 'symbol' | 'comment' | 'markup';
 
 /** Describes a masked variable with its detected type and optional metadata */
 export interface VariableInfo {

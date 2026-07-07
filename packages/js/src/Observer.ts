@@ -242,21 +242,29 @@ export class Observer {
   }
 
   private hasInlineChildElements(element: Element): boolean {
-    let hasInline = false;
-    for (const child of element.children) {
-      const tagName = child.tagName.toLowerCase();
-      if (this.allowedInlineTagsSet.has(tagName)) {
-        hasInline = true;
-      } else {
-        // Has a non-inline child element — don't aggregate
-        return false;
-      }
+    const children = element.children;
+    if (children.length === 0) return false;
+    // Every child — and its entire subtree — must be inline-allowed. A non-inline
+    // element anywhere below (e.g. an <input> or <svg> nested in an otherwise
+    // inline <span>) means this isn't a formatted run of text; aggregating it
+    // would drag non-translatable markup into the cache key.
+    for (const child of children) {
+      if (!this.isFullyInline(child)) return false;
     }
     // Single inline child with no sibling text is just a wrapper — skip aggregation
-    if (hasInline && element.children.length === 1 && !this.hasDirectTextContent(element)) {
+    if (children.length === 1 && !this.hasDirectTextContent(element)) {
       return false;
     }
-    return hasInline;
+    return true;
+  }
+
+  /** True when `element` and all of its descendant elements are allowed inline tags. */
+  private isFullyInline(element: Element): boolean {
+    if (!this.allowedInlineTagsSet.has(element.tagName.toLowerCase())) return false;
+    for (const child of element.children) {
+      if (!this.isFullyInline(child)) return false;
+    }
+    return true;
   }
 
   private hasDirectTextContent(element: Element): boolean {

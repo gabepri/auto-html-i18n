@@ -39,19 +39,33 @@ export class Masker {
       return { masked: '', variables: [], tagAttributes: new Map(), casePattern: 'lower', leadingWhitespace: '', trailingWhitespace: '' };
     }
 
-    // Phase 1: Normalize inline tags (strip attributes, assign indices)
+    // Phase 1: Normalize allowed inline tags — strip attributes, assign indices,
+    // and match each closing tag to its opener via a stack (so nested same-name
+    // tags like <span><span></span></span> keep their pairing). Non-allowed tags
+    // are left raw here; phase 2 masks them as opaque `markup` variables.
     const tagAttributes = new Map<string, Record<string, string>>();
     const tagCounters = new Map<string, number>();
-    // Map from original tag index marker to its key (e.g. "a0")
-    const tagMapping = new Map<string, string>();
+    const openStack: string[] = []; // tag keys (e.g. "span0") of still-open tags
 
-    // Process opening tags of allowed inline elements
-    let tagProcessed = text.replace(
-      /<(\w+)(\s[^>]*)?\s*>/g,
-      (match, tagName: string, attrString: string | undefined) => {
+    const tagProcessed = text.replace(
+      /<(\/)?([a-zA-Z][\w-]*)((?:\s[^>]*?)?)\s*(\/)?>/g,
+      (match, closing: string | undefined, tagName: string, attrString: string | undefined, selfClosing: string | undefined) => {
         const lowerTag = tagName.toLowerCase();
         if (!this.allowedInlineTags.has(lowerTag)) {
-          return match; // Leave non-allowed tags as-is
+          return match; // non-allowed — leave raw for phase 2 to mask as markup
+        }
+        if (selfClosing) {
+          return match; // self-closing has no pair; treat as opaque markup in phase 2
+        }
+        if (closing) {
+          // Match to the nearest unclosed opener of the same tag name.
+          for (let s = openStack.length - 1; s >= 0; s--) {
+            if (openStack[s]!.replace(/\d+$/, '') === lowerTag) {
+              const tagKey = openStack.splice(s, 1)[0]!;
+              return `</${tagKey}>`;
+            }
+          }
+          return match; // unmatched close — leave raw (phase 2 → markup)
         }
 
         const count = tagCounters.get(lowerTag) ?? 0;
@@ -71,30 +85,13 @@ export class Masker {
         }
 
         tagAttributes.set(tagKey, attrs);
-        tagMapping.set(tagKey, tagKey);
+        openStack.push(tagKey);
         return `<${tagKey}>`;
       }
     );
 
-    // Process closing tags of allowed inline elements
-    // We need to match closing tags to the correct indexed opening tags
-    const closingTagCounters = new Map<string, number>();
-    tagProcessed = tagProcessed.replace(
-      /<\/(\w+)\s*>/g,
-      (match, tagName: string) => {
-        const lowerTag = tagName.toLowerCase();
-        if (!this.allowedInlineTags.has(lowerTag)) {
-          return match;
-        }
-
-        const count = closingTagCounters.get(lowerTag) ?? 0;
-        closingTagCounters.set(lowerTag, count + 1);
-        return `</${lowerTag}${count}>`;
-      }
-    );
-
-    // Phase 2: Mask variables (ignoreWords, dates, numbers)
-    // We need to skip content inside < > to avoid matching tag index numbers
+    // Phase 2: Mask variables (comments, non-allowed tags, ignoreWords, dates, numbers).
+    // We skip the interior of normalized tag markers to avoid matching their index digits.
     const variables: VariableInfo[] = [];
     let masked = '';
     let i = 0;
@@ -112,11 +109,21 @@ export class Masker {
         }
       }
 
-      // Skip over tag contents (< ... >)
+      // Handle a tag: a normalized allowed-tag marker (<span0>, </span0>) is copied
+      // verbatim; anything else is a non-allowed tag masked as an opaque markup
+      // variable so its (possibly volatile) attributes never enter the cache key.
       if (tagProcessed[i] === '<') {
         const closeIdx = tagProcessed.indexOf('>', i);
         if (closeIdx !== -1) {
-          masked += tagProcessed.slice(i, closeIdx + 1);
+          const tagText = tagProcessed.slice(i, closeIdx + 1);
+          const markerMatch = /^<\/?([a-zA-Z][\w-]*)>$/.exec(tagText);
+          if (markerMatch && tagAttributes.has(markerMatch[1]!)) {
+            masked += tagText;
+          } else {
+            const index = variables.length;
+            variables.push({ value: tagText, type: 'markup' });
+            masked += `{{${index}}}`;
+          }
           i = closeIdx + 1;
           continue;
         }
@@ -182,14 +189,18 @@ export class Masker {
       return '';
     }
 
-    // Phase 1: Detect format and restore variables
+    // Phase 1: Detect format and restore variables. Markup variables (the page's
+    // own non-allowed tags, captured at mask time) are held as sentinels through
+    // sanitization and restored verbatim last, so sanitizeTags never escapes them
+    // while still escaping any tags the translation itself introduced.
     const format = this.detectFormat(translated);
+    const markupSentinels: [string, string][] = [];
 
     let result: string;
 
     if (format === 'icu' && locale) {
       try {
-        result = this.evaluateICU(translated, variables, locale);
+        result = this.evaluateICU(translated, variables, locale, markupSentinels);
       } catch {
         if (original !== undefined) {
           // Fall back to the untranslated source text. It needs no tag
@@ -206,6 +217,7 @@ export class Masker {
       result = translated.replace(/\{\{(\d+)\}\}/g, (_match, indexStr: string) => {
         const variable = variables[parseInt(indexStr, 10)];
         if (variable === undefined) return `{{${indexStr}}}`;
+        if (variable.type === 'markup') return this.markupSentinel(variable.value, markupSentinels);
         return isolate && BIDI_ISOLATED_TYPES.has(variable.type)
           ? FSI + variable.value + PDI
           : variable.value;
@@ -218,6 +230,24 @@ export class Masker {
     // Phase 3: Sanitize — escape any HTML tags not in the allowlist
     result = this.sanitizeTags(result);
 
+    // Phase 4: Restore markup variables verbatim (they bypass sanitization)
+    result = this.restoreMarkup(result, markupSentinels);
+
+    return result;
+  }
+
+  /** Records a markup value under a sanitize-proof sentinel and returns the sentinel. */
+  private markupSentinel(value: string, out: [string, string][]): string {
+    const sentinel = `�MK${out.length}�`;
+    out.push([sentinel, value]);
+    return sentinel;
+  }
+
+  private restoreMarkup(text: string, sentinels: [string, string][]): string {
+    let result = text;
+    for (const [sentinel, value] of sentinels) {
+      result = result.split(sentinel).join(value);
+    }
     return result;
   }
 
@@ -233,11 +263,12 @@ export class Masker {
     tagAttributes?: Map<string, Record<string, string>>
   ): IcuValidationResult {
     const format = this.detectFormat(translated);
+    const markupSentinels: [string, string][] = [];
 
     let output: string;
     if (format === 'icu') {
       try {
-        output = this.evaluateICU(translated, variables, locale);
+        output = this.evaluateICU(translated, variables, locale, markupSentinels);
       } catch (err) {
         return { valid: false, format, error: err instanceof Error ? err.message : String(err) };
       }
@@ -250,6 +281,7 @@ export class Masker {
           missing.add(match);
           return match;
         }
+        if (variable.type === 'markup') return this.markupSentinel(variable.value, markupSentinels);
         return isolate && BIDI_ISOLATED_TYPES.has(variable.type)
           ? FSI + variable.value + PDI
           : variable.value;
@@ -269,6 +301,7 @@ export class Masker {
       output = this.restoreTagAttributes(output, tagAttributes);
     }
     output = this.sanitizeTags(output);
+    output = this.restoreMarkup(output, markupSentinels);
 
     return { valid: true, format, output };
   }
@@ -421,7 +454,12 @@ export class Masker {
     }
   }
 
-  private evaluateICU(pattern: string, variables: VariableInfo[], locale: string): string {
+  private evaluateICU(
+    pattern: string,
+    variables: VariableInfo[],
+    locale: string,
+    markupOut?: [string, string][]
+  ): string {
     // Temporarily replace all HTML tags to prevent ICU parser conflicts
     const tagPlaceholders: [string, string][] = [];
     const icuPattern = pattern.replace(/<\/?[^>]+>/g, (match) => {
@@ -436,7 +474,10 @@ export class Masker {
     for (let i = 0; i < variables.length; i++) {
       const vi = variables[i]!;
       // Parse numbers for proper ICU plural rule evaluation
-      if (vi.type === 'number') {
+      if (vi.type === 'markup' && markupOut) {
+        // Hold markup behind a sanitize-proof sentinel; restored verbatim by the caller.
+        args[String(i)] = this.markupSentinel(vi.value, markupOut);
+      } else if (vi.type === 'number') {
         args[String(i)] = parseFloat(vi.value);
       } else {
         args[String(i)] = vi.value;

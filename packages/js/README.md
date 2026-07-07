@@ -128,7 +128,9 @@ The `items` array passed to your callback contains objects with this structure:
 }
 ```
 
-Each variable includes its auto-detected type (`'ignoreWord'`, `'number'`, `'date'`, `'url'`, `'email'`, `'symbol'`, or `'comment'`) and optional metadata from `ignoreWords` config. This information is used for ICU MessageFormat evaluation and can help your backend generate better translations.
+Each variable includes its auto-detected type (`'ignoreWord'`, `'number'`, `'date'`, `'url'`, `'email'`, `'symbol'`, `'comment'`, or `'markup'`) and optional metadata from `ignoreWords` config. This information is used for ICU MessageFormat evaluation and can help your backend generate better translations.
+
+Tags **not** in `allowedInlineTags` (e.g. an `<input>`, `<svg>`, or `<div>` that ends up inside a translatable run) are captured as opaque `'markup'` variables rather than left in the key. This keeps volatile attributes (random ids, gradient refs) out of the cache key so it stays stable, and the original markup is restored verbatim on output. Note the observer normally avoids handing such subtrees to the masker at all: an element is only aggregated when its **entire** descendant subtree is inline-allowed.
 
 ---
 
@@ -645,7 +647,7 @@ On first load, users may briefly see source-language text before translations ar
 
 The library reconstructs translated HTML by re-injecting inline tags and attributes into the DOM. Because these translations come from your backend, it is important to ensure the response is trustworthy.
 
-- **Tag allowlist:** Only tags listed in `allowedInlineTags` are permitted in restored output. Any tags not in the allowlist are escaped as plain text.
+- **Tag allowlist:** Only tags listed in `allowedInlineTags` are permitted in restored output. Any *new* tags a translation introduces that are not in the allowlist are escaped as plain text. (Non-allowed tags from your own source are captured as `'markup'` variables at mask time and restored verbatim — the translation cannot inject content into those slots.)
 - **Attribute stripping:** Event handler attributes (e.g., `onclick`, `onerror`) are always stripped from restored tags, even if they appear in the translation response.
 - **Recommendation:** Ensure your translation backend is authenticated and returns sanitized content. If using an LLM, validate responses before returning them to the client.
 

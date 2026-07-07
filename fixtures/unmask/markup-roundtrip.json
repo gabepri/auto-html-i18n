@@ -1,0 +1,28 @@
+[
+  {
+    "name": "markup variables round-trip verbatim (not escaped) through sanitization",
+    "translated": "{{0}}text{{1}}",
+    "variables": [
+      { "value": "<div>", "type": "markup" },
+      { "value": "</div>", "type": "markup" }
+    ],
+    "expected": "<div>text</div>"
+  },
+  {
+    "name": "markup variable preserves attributes while allowed tag is restored",
+    "translated": "Click <b0>here</b0> {{0}} now",
+    "variables": [
+      { "value": "<input type=\"checkbox\">", "type": "markup" }
+    ],
+    "tagAttributes": { "b0": {} },
+    "expected": "Click <b>here</b> <input type=\"checkbox\"> now"
+  },
+  {
+    "name": "source markup var is preserved but a tag injected by the translation is still escaped",
+    "translated": "{{0}}<script>x</script>",
+    "variables": [
+      { "value": "<div>", "type": "markup" }
+    ],
+    "expected": "<div>&lt;script&gt;x&lt;/script&gt;"
+  }
+]

@@ -342,10 +342,37 @@ describe('Masker', () => {
       });
     });
 
-    it('should not normalize tags not in allowedInlineTags', () => {
+    it('should mask tags not in allowedInlineTags as opaque markup variables', () => {
       const masker = createMasker();
       const result = masker.mask('<div>text</div>');
-      expect(result.masked).toBe('<div>text</div>');
+      expect(result.masked).toBe('{{0}}text{{1}}');
+      expect(result.variables).toEqual([
+        { value: '<div>', type: 'markup' },
+        { value: '</div>', type: 'markup' },
+      ]);
+    });
+
+    it('keeps a non-allowed tag\'s volatile attributes out of the cache key', () => {
+      const masker = createMasker();
+      const a = masker.mask('x<input id="input_13" value="Environmental">y');
+      const b = masker.mask('x<input id="input_47" value="Environmental">y');
+      // Different ids must not change the key — both mask to the same masked form.
+      expect(a.masked).toBe('x{{0}}y');
+      expect(b.masked).toBe('x{{0}}y');
+    });
+
+    it('round-trips a masked non-allowed tag verbatim through unmask', () => {
+      const masker = createMasker();
+      const { masked, variables, tagAttributes } = masker.mask('See <img src="a.png"> now');
+      expect(masked).toBe('See {{0}} now');
+      const out = masker.unmask('See {{0}} now', variables, tagAttributes);
+      expect(out).toBe('See <img src="a.png"> now');
+    });
+
+    it('matches nested same-name closing tags to their opener (stack order)', () => {
+      const masker = createMasker();
+      const result = masker.mask('<span>outer <span>inner</span> tail</span>');
+      expect(result.masked).toBe('<span0>outer <span1>inner</span1> tail</span0>');
     });
 
     it('should handle tags with no attributes', () => {
