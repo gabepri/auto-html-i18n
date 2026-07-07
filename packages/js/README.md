@@ -235,7 +235,7 @@ i18n.start();
 
 Disconnects the `MutationObserver` and clears any pending translation queues. Does not clear the cache. Call `start()` to resume observation.
 
-When called with `true`, all translated elements are reverted to their original text and all `data-i18n-*` attributes added by the library are removed. Since the cache is preserved, calling `start()` afterward will re-apply translations immediately from cache.
+When called with `true`, all translated elements are reverted to their original text and all `data-i18n-*` attributes added by the library are removed. Elements whose content changed after translation (e.g. a framework wrote newer text the library never saw) are left as-is — a revert never overwrites content the library didn't write; only the tracking attributes are removed. Since the cache is preserved, calling `start()` afterward will re-apply translations immediately from cache.
 
 ```javascript
 i18n.stop();       // stop observing, keep translations in DOM
@@ -680,11 +680,11 @@ We welcome contributions! This library is built with TypeScript and uses Vitest 
 
 ### Architecture Overview
 
-* **`Observer.ts`**: Manages the `MutationObserver` and DOM filtering. Handles re-entry prevention via the configured `originalAttribute`.
+* **`Observer.ts`**: Manages the `MutationObserver` and DOM filtering (ignored subtrees, inline-markup aggregation). Forwards everything it finds; the Translator decides what to skip.
 * **`Store.ts`**: The internal state manager. It uses a **Two-Tier Map** (Locale -> Key -> Entry) to store raw variant objects. It is **not** exposed directly to ensure state integrity (handling `pending`, `resolved`, `reported` flags).
 * **`Queue.ts`**: Manages debouncing and batching of translation requests. Collects pending items during the `debounceTime` window and dispatches them in chunks of `maxBatchSize` to the `onMissingTranslation` callback.
-* **`Masker.ts`**: Handles regex logic for variables (`{{0}}`), attribute stripping (`<a0>`), and ICU MessageFormat evaluation.
-* **`Translator.ts`**: Coordinates the Cache, Network requests, and DOM updates.
+* **`Masker.ts`**: Handles regex logic for variables (`{{0}}`), attribute stripping (`<a0>`), and ICU MessageFormat evaluation (falling back to the original text when a pattern fails).
+* **`Translator.ts`**: Coordinates the Cache, Network requests, and DOM updates. Remembers what it wrote per element to tell its own mutation echoes apart from framework rewrites, and to keep stale translations and reverts from clobbering newer content.
 
 ### Testing
 

@@ -227,6 +227,14 @@ export class Translator {
       const cacheKey = keyOverride ?? maskResult.masked;
       const scope = this.resolveScope(element);
 
+      // Skip elements whose content changed since we last wrote them — the
+      // marker is stale and re-applying would clobber the newer content
+      const lastKnown = this.lastApplied.get(element);
+      const current = isHtml ? element.innerHTML : element.textContent;
+      if (lastKnown !== undefined && current !== lastKnown) {
+        continue;
+      }
+
       const entry = this.store.get(this.config.locale, cacheKey);
       if (entry && entry.status === 'resolved' && entry.value !== null) {
         const resolved = resolveEntry(entry.value, scope);
@@ -253,6 +261,12 @@ export class Translator {
 
         const maskResult = this.masker.mask(originalValue);
         if (!hasTranslatableContent(maskResult.masked)) continue;
+
+        // Skip attributes whose value changed since we last wrote them
+        const lastKnown = this.lastAppliedAttrs.get(element)?.get(attr);
+        if (lastKnown !== undefined && element.getAttribute(attr) !== lastKnown) {
+          continue;
+        }
 
         const cacheKey = maskResult.masked;
         const scope = this.resolveScope(element);
@@ -297,14 +311,21 @@ export class Translator {
       const originalText = element.getAttribute(this.config.originalAttribute);
       if (originalText) {
         const isHtml = /<[^>]+>/.test(originalText);
-        if (isHtml) {
-          element.innerHTML = originalText;
-        } else {
-          element.textContent = originalText;
+        // Only restore if the content is still what we wrote — otherwise the
+        // element was rewritten since and the newer content wins
+        const lastKnown = this.lastApplied.get(element);
+        const current = isHtml ? element.innerHTML : element.textContent;
+        if (lastKnown === undefined || current === lastKnown) {
+          if (isHtml) {
+            element.innerHTML = originalText;
+          } else {
+            element.textContent = originalText;
+          }
         }
       }
       element.removeAttribute(this.config.originalAttribute);
       element.removeAttribute(this.config.pendingAttribute);
+      this.lastApplied.delete(element);
     }
 
     // Revert attributes
@@ -314,7 +335,11 @@ export class Translator {
       for (const element of attrElements) {
         const originalValue = element.getAttribute(originalAttrName);
         if (originalValue) {
-          element.setAttribute(attr, originalValue);
+          const lastKnown = this.lastAppliedAttrs.get(element)?.get(attr);
+          if (lastKnown === undefined || element.getAttribute(attr) === lastKnown) {
+            element.setAttribute(attr, originalValue);
+          }
+          this.lastAppliedAttrs.get(element)?.delete(attr);
         }
         element.removeAttribute(originalAttrName);
       }

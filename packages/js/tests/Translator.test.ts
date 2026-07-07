@@ -1222,5 +1222,91 @@ describe('Translator', () => {
       expect(input.getAttribute('placeholder')).toBe('Enter email');
       expect(input.hasAttribute('data-i18n-original-placeholder')).toBe(false);
     });
+
+    it('revertAll should keep text that changed after translation but still remove markers', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Hello', 'Hola');
+
+      const p = document.createElement('p');
+      p.textContent = 'Hello';
+      root.appendChild(p);
+      translator.processText(p, 'Hello');
+      expect(p.textContent).toBe('Hola');
+
+      p.textContent = 'Newer content';
+      translator.revertAll();
+
+      expect(p.textContent).toBe('Newer content');
+      expect(p.hasAttribute('data-i18n-original')).toBe(false);
+      expect(p.hasAttribute('data-i18n-pending')).toBe(false);
+    });
+
+    it('revertAll should still restore unchanged translated text', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Hello', 'Hola');
+
+      const p = document.createElement('p');
+      p.textContent = 'Hello';
+      root.appendChild(p);
+      translator.processText(p, 'Hello');
+
+      translator.revertAll();
+
+      expect(p.textContent).toBe('Hello');
+      expect(p.hasAttribute('data-i18n-original')).toBe(false);
+    });
+
+    it('retranslateAll should not overwrite text that changed since translation', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Hello', 'Hola');
+      store.set('fr', 'Hello', 'Bonjour');
+
+      const p = document.createElement('p');
+      p.textContent = 'Hello';
+      root.appendChild(p);
+      translator.processText(p, 'Hello');
+      expect(p.textContent).toBe('Hola');
+
+      p.textContent = 'Patched content';
+      translator.setLocale('fr');
+      translator.retranslateAll();
+
+      expect(p.textContent).toBe('Patched content');
+    });
+
+    it('retranslateAll should not overwrite an attribute that changed since translation', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Enter name', 'Ingrese nombre');
+      store.set('fr', 'Enter name', 'Entrez le nom');
+
+      const input = document.createElement('input');
+      input.setAttribute('placeholder', 'Enter name');
+      root.appendChild(input);
+      translator.processAttribute(input, 'placeholder', 'Enter name');
+      expect(input.getAttribute('placeholder')).toBe('Ingrese nombre');
+
+      input.setAttribute('placeholder', 'Patched hint');
+      translator.setLocale('fr');
+      translator.retranslateAll();
+
+      expect(input.getAttribute('placeholder')).toBe('Patched hint');
+    });
+
+    it('revertAll should keep an attribute that changed after translation but still remove its marker', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Enter name', 'Ingrese nombre');
+
+      const input = document.createElement('input');
+      input.setAttribute('placeholder', 'Enter name');
+      root.appendChild(input);
+      translator.processAttribute(input, 'placeholder', 'Enter name');
+      expect(input.getAttribute('placeholder')).toBe('Ingrese nombre');
+
+      input.setAttribute('placeholder', 'Enter email');
+      translator.revertAll();
+
+      expect(input.getAttribute('placeholder')).toBe('Enter email');
+      expect(input.hasAttribute('data-i18n-original-placeholder')).toBe(false);
+    });
   });
 });

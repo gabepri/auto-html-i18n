@@ -244,6 +244,62 @@ describe('I18nObserver', () => {
       expect(root.querySelector('p')?.textContent).toBe('Hello');
     });
 
+    it('should keep newer text on stop(true) instead of restoring a stale original', () => {
+      root.innerHTML = '<p>Hello</p>';
+      const i18n = new I18nObserver(createConfig({
+        initialCache: { 'Hello': 'Hola' },
+        rootElement: root,
+      }));
+
+      i18n.start();
+      const p = root.querySelector('p')!;
+      expect(p.textContent).toBe('Hola');
+
+      // Framework patches the content; stop(true) runs before the observer
+      // callback ever fires, so data-i18n-original still says 'Hello'
+      p.textContent = 'Goodbye';
+      i18n.stop(true);
+
+      expect(p.textContent).toBe('Goodbye');
+      expect(p.hasAttribute('data-i18n-original')).toBe(false);
+    });
+
+    it('should keep newer attribute values on stop(true) instead of restoring a stale original', () => {
+      root.innerHTML = '<input placeholder="Search here">';
+      const i18n = new I18nObserver(createConfig({
+        initialCache: { 'Search here': 'Buscar aquí' },
+        rootElement: root,
+      }));
+
+      i18n.start();
+      const input = root.querySelector('input')!;
+      expect(input.getAttribute('placeholder')).toBe('Buscar aquí');
+
+      input.setAttribute('placeholder', 'New hint');
+      i18n.stop(true);
+
+      expect(input.getAttribute('placeholder')).toBe('New hint');
+      expect(input.hasAttribute('data-i18n-original-placeholder')).toBe(false);
+    });
+
+    it('should keep newer innerHTML on stop(true) instead of restoring a stale original', () => {
+      root.innerHTML = '<p>Click <a href="/login">here</a> to login</p>';
+      const i18n = new I18nObserver(createConfig({
+        initialCache: { 'Click <a0>here</a0> to login': 'Haga clic <a0>aquí</a0> para iniciar sesión' },
+        rootElement: root,
+      }));
+
+      i18n.start();
+      const p = root.querySelector('p')!;
+      expect(p.textContent).toBe('Haga clic aquí para iniciar sesión');
+
+      p.innerHTML = 'Sign <a href="/signup">up</a> instead';
+      i18n.stop(true);
+
+      expect(p.innerHTML).toBe('Sign <a href="/signup">up</a> instead');
+      expect(p.hasAttribute('data-i18n-original')).toBe(false);
+    });
+
     it('should allow start() after stop(true) to re-translate from cache', () => {
       root.innerHTML = '<p>Hello</p>';
       const i18n = new I18nObserver(createConfig({
