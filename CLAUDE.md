@@ -60,7 +60,7 @@ Single-pass synchronous transform — HTML string in, translated HTML string out
 
 ## Shared fixtures
 
-Behavior-critical Masker test cases live in [fixtures/masker/](fixtures/masker/) (masking), [fixtures/unmask/](fixtures/unmask/) (unmasking/ICU fallback), and [fixtures/icu-validate/](fixtures/icu-validate/) (validation verdicts) as JSON. Both packages have a fixture-driven test suite that loads these and asserts the local Masker reproduces them. Adding a fixture exercises both ports automatically — this is the cross-port regression net.
+Behavior-critical Masker test cases live in [fixtures/masker/](fixtures/masker/) (masking), [fixtures/unmask/](fixtures/unmask/) (unmasking/ICU fallback/RTL bidi isolation), [fixtures/icu-validate/](fixtures/icu-validate/) (validation verdicts), and [fixtures/direction/](fixtures/direction/) (locale → writing direction) as JSON. Both packages have a fixture-driven test suite that loads these and asserts the local Masker reproduces them. Adding a fixture exercises both ports automatically — this is the cross-port regression net.
 
 Don't fixture behavior that hinges on the ICU engines' terminal locale fallback: for a wholly invalid locale, PHP ends at ICU's root locale while JS's `und` resolves to the runtime default, so plural categories can differ there (the `other` branch is safe to fixture; `one` is not). Those cases belong in port-specific tests.
 

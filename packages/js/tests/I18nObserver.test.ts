@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { I18nObserver } from '../src/I18nObserver';
 import type { I18nConfig } from '../src/types';
 
@@ -811,6 +811,93 @@ describe('I18nObserver', () => {
       const result = i18n.validateTranslation('5 sheep', '{2, plural, one {# oveja} other {# ovejas}}');
       expect(result.valid).toBe(false);
       expect(result.error).toBeTruthy();
+    });
+  });
+
+  describe('direction management', () => {
+    const html = () => document.documentElement;
+
+    afterEach(() => {
+      html().removeAttribute('dir');
+      html().removeAttribute('lang');
+    });
+
+    it('should expose getDirection for the current and explicit locales', () => {
+      const i18n = new I18nObserver(createConfig({ locale: 'he-IL', rootElement: root }));
+      expect(i18n.getDirection()).toBe('rtl');
+      expect(i18n.getDirection('fr')).toBe('ltr');
+      expect(i18n.getDirection('ar-EG')).toBe('rtl');
+    });
+
+    it('should not touch the document when manageDirection is off', () => {
+      const i18n = new I18nObserver(createConfig({ locale: 'he-IL', rootElement: root }));
+      i18n.start();
+      expect(html().hasAttribute('dir')).toBe(false);
+      expect(html().hasAttribute('lang')).toBe(false);
+      i18n.stop();
+    });
+
+    it('should set dir and lang on start() when manageDirection is on', () => {
+      const i18n = new I18nObserver(createConfig({ locale: 'he-IL', rootElement: root, manageDirection: true }));
+      i18n.start();
+      expect(html().getAttribute('dir')).toBe('rtl');
+      expect(html().getAttribute('lang')).toBe('he-IL');
+      i18n.stop();
+    });
+
+    it('should update dir and lang on setLocale()', () => {
+      const i18n = new I18nObserver(createConfig({ locale: 'en-US', rootElement: root, manageDirection: true }));
+      i18n.start();
+      expect(html().getAttribute('dir')).toBe('ltr');
+      i18n.setLocale('he-IL');
+      expect(html().getAttribute('dir')).toBe('rtl');
+      expect(html().getAttribute('lang')).toBe('he-IL');
+      i18n.setLocale('en-US');
+      expect(html().getAttribute('dir')).toBe('ltr');
+      expect(html().getAttribute('lang')).toBe('en-US');
+      i18n.stop();
+    });
+
+    it('should restore prior dir and lang on stop(true)', () => {
+      html().setAttribute('dir', 'ltr');
+      html().setAttribute('lang', 'en');
+      const i18n = new I18nObserver(createConfig({ locale: 'he-IL', rootElement: root, manageDirection: true }));
+      i18n.start();
+      expect(html().getAttribute('dir')).toBe('rtl');
+      i18n.stop(true);
+      expect(html().getAttribute('dir')).toBe('ltr');
+      expect(html().getAttribute('lang')).toBe('en');
+    });
+
+    it('should remove dir and lang on stop(true) when none existed before', () => {
+      const i18n = new I18nObserver(createConfig({ locale: 'he-IL', rootElement: root, manageDirection: true }));
+      i18n.start();
+      i18n.stop(true);
+      expect(html().hasAttribute('dir')).toBe(false);
+      expect(html().hasAttribute('lang')).toBe(false);
+    });
+
+    it('should keep the managed direction on stop() without revert', () => {
+      const i18n = new I18nObserver(createConfig({ locale: 'he-IL', rootElement: root, manageDirection: true }));
+      i18n.start();
+      i18n.stop();
+      expect(html().getAttribute('dir')).toBe('rtl');
+    });
+
+    it('should manage a custom directionElement instead of the document element', () => {
+      const widget = document.createElement('div');
+      document.body.appendChild(widget);
+      const i18n = new I18nObserver(createConfig({
+        locale: 'he-IL',
+        rootElement: root,
+        manageDirection: true,
+        directionElement: widget,
+      }));
+      i18n.start();
+      expect(widget.getAttribute('dir')).toBe('rtl');
+      expect(html().hasAttribute('dir')).toBe(false);
+      i18n.stop(true);
+      expect(widget.hasAttribute('dir')).toBe(false);
     });
   });
 });

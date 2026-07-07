@@ -1,5 +1,7 @@
 export { I18nObserver } from './I18nObserver';
+export { getLocaleDirection } from './direction';
 export type {
+  TextDirection,
   I18nConfig,
   TranslationEntry,
   ScopedTranslation,

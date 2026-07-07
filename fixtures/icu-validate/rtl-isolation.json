@@ -1,0 +1,34 @@
+[
+  {
+    "name": "simple substitution isolates variables in an RTL locale",
+    "translated": "יש לך {{0}} פריטים",
+    "variables": [
+      {
+        "value": "5",
+        "type": "number"
+      }
+    ],
+    "locale": "he-IL",
+    "expected": {
+      "valid": true,
+      "format": "simple",
+      "output": "יש לך \u20685\u2069 פריטים"
+    }
+  },
+  {
+    "name": "simple substitution does not isolate in an LTR locale",
+    "translated": "You have {{0}} items",
+    "variables": [
+      {
+        "value": "5",
+        "type": "number"
+      }
+    ],
+    "locale": "en-US",
+    "expected": {
+      "valid": true,
+      "format": "simple",
+      "output": "You have 5 items"
+    }
+  }
+]

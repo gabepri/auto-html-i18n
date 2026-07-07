@@ -42,6 +42,10 @@ export type OnMissingTranslationCallback = (
 
 export type I18nStatus = 'idle' | 'observing' | 'stopped' | 'destroyed';
 
+// ---- Direction Types ----
+
+export type TextDirection = 'ltr' | 'rtl';
+
 // ---- Configuration Types ----
 
 export interface I18nConfig {
@@ -60,6 +64,10 @@ export interface I18nConfig {
   keyAttribute?: string;
   ignoreAttribute?: string;
   scopeAttribute?: string;
+  /** When true, keep dir/lang on directionElement in sync with the locale */
+  manageDirection?: boolean;
+  /** Element whose dir/lang are managed; defaults to document.documentElement */
+  directionElement?: HTMLElement;
   debug?: boolean;
 }
 

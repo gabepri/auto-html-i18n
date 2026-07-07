@@ -19,6 +19,7 @@ It features **Smart Masking**, **Inline Tag Support**, and **ICU MessageFormat**
 - [How It Works](#-how-it-works)
 - [ICU MessageFormat](#-icu-messageformat)
 - [Scoped Translations](#-scoped-translations)
+- [RTL Support](#-rtl-support)
 - [Browser Support](#-browser-support)
 - [Performance](#-performance)
 - [Security](#-security)
@@ -105,6 +106,8 @@ The `I18nObserver` constructor accepts a config object with the following proper
 | `keyAttribute` | `string` | `'data-i18n-key'` | If this attribute is present on an element, its value is used as the cache key instead of the computed masked string. |
 | `ignoreAttribute` | `string` | `'data-i18n-ignore'` | The attribute name that marks an element (and its entire subtree) to be completely skipped by the observer. |
 | `scopeAttribute` | `string` | `'data-i18n-scope'` | The attribute name used to define a translation scope. Scopes inherit down the DOM tree. See [Scoped Translations](#-scoped-translations). |
+| `manageDirection` | `boolean` | `false` | When enabled, `start()` and `setLocale()` keep the `dir` and `lang` attributes of `directionElement` in sync with the locale (e.g. `dir="rtl" lang="he-IL"`). `stop(true)` / `destroy(true)` restore whatever was there before. See [RTL support](#-rtl-support). |
+| `directionElement` | `HTMLElement` | `document.documentElement` | The element whose `dir`/`lang` are managed when `manageDirection` is enabled. Point it at your widget's root when translating an embedded subtree. |
 | `debug` | `boolean` | `false` | When enabled, each item in `onMissingTranslation` includes a `debug` field with DOM context for bug reporting. See [Debugging](#-debugging). |
 
 ### The `onMissingTranslation` Item Object
@@ -259,6 +262,17 @@ Updates the target locale and re-translates all observed nodes using the new loc
 
 ```javascript
 i18n.setLocale('fr');
+```
+
+When `manageDirection` is enabled, `setLocale()` also updates the managed `dir`/`lang` attributes. See [RTL Support](#-rtl-support).
+
+### `getDirection(locale?)`
+
+Returns the writing direction (`'ltr'` or `'rtl'`) of the given locale, defaulting to the current one. Also available as the standalone export `getLocaleDirection(locale)`.
+
+```javascript
+i18n.getDirection();        // 'rtl' when the current locale is e.g. 'he-IL'
+i18n.getDirection('ar-EG'); // 'rtl'
 ```
 
 ### `translate(text, variables?, scope?)`
@@ -559,6 +573,43 @@ const i18n = new I18nObserver({
   onMissingTranslation: async (items, locale) => { /* ... */ },
 });
 ```
+
+---
+
+## ↔️ RTL Support
+
+Right-to-left locales (Hebrew, Arabic, Persian, Urdu, …) work out of the box; two features make them first-class:
+
+### Document direction management
+
+With `manageDirection: true`, the library keeps `dir` and `lang` on `document.documentElement` (or a custom `directionElement`) in sync with the locale:
+
+```javascript
+const i18n = new I18nObserver({
+  locale: 'he-IL',
+  manageDirection: true,
+  onMissingTranslation: async (items, locale) => { /* ... */ },
+});
+
+i18n.start();            // <html dir="rtl" lang="he-IL">
+i18n.setLocale('en-US'); // <html dir="ltr" lang="en-US">
+i18n.stop(true);         // restores the attributes that were there before start()
+```
+
+Direction is resolved from the locale tag: the language subtag decides (`he`, `ar`, `fa`, `ur`, …), and an explicit script subtag overrides it (`az-Arab` → rtl, `ar-Latn` → ltr). The resolver is exported standalone, and `i18n.getDirection(locale?)` exposes it on the instance:
+
+```javascript
+import { getLocaleDirection } from 'auto-html-i18n';
+
+getLocaleDirection('he-IL');  // 'rtl'
+i18n.getDirection();          // direction of the current locale
+```
+
+### Bidi isolation of variables
+
+When the target locale is RTL, values re-injected into `{{N}}` placeholders — numbers, dates, URLs, emails, and `ignoreWords` (typically Latin brand names) — are wrapped in Unicode *first-strong isolate* characters (U+2068…U+2069). Without this, the bidi algorithm can visually scramble LTR fragments inside an RTL sentence (e.g. a date like `12/31/2024` rendering reversed). The isolates are invisible, carried into the DOM output, and stripped again during masking, so cache keys stay stable.
+
+Isolation applies to simple `{{N}}` substitution (and `validateIcu`/`validateTranslation` output). ICU patterns are rendered by the ICU engine as-is — add directional marks inside the pattern if a specific argument needs them.
 
 ---
 

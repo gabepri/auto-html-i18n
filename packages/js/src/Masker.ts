@@ -1,10 +1,23 @@
 import { IntlMessageFormat } from 'intl-messageformat';
+import { getLocaleDirection } from './direction';
 import type { CasePattern, IcuValidationResult, IgnoreWordEntry, MaskerConfig, MaskResult, TranslationFormat, VariableInfo, VariableType } from './types';
 
 interface IgnoreWordInternal {
   word: string;
   meta?: Record<string, string>;
 }
+
+// Invisible bidi formatting characters (marks, embeddings, isolates). Stripped
+// during masking so a key stays stable when already-translated (isolate-wrapped)
+// content is re-masked.
+const BIDI_CONTROLS = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
+
+const FSI = '\u2068'; // FIRST STRONG ISOLATE
+const PDI = '\u2069'; // POP DIRECTIONAL ISOLATE
+
+// Variable types wrapped in FSI…PDI when substituted into RTL output. Comments
+// are markup and symbols are direction-neutral, so neither is isolated.
+const BIDI_ISOLATED_TYPES = new Set<VariableType>(['ignoreWord', 'number', 'date', 'url', 'email']);
 
 export class Masker {
   private ignoreWords: IgnoreWordInternal[];
@@ -21,6 +34,7 @@ export class Masker {
   }
 
   mask(text: string): MaskResult {
+    text = text.replace(BIDI_CONTROLS, '');
     if (text === '') {
       return { masked: '', variables: [], tagAttributes: new Map(), casePattern: 'lower', leadingWhitespace: '', trailingWhitespace: '' };
     }
@@ -188,9 +202,13 @@ export class Masker {
       }
     } else {
       // Simple substitution
+      const isolate = locale !== undefined && getLocaleDirection(locale) === 'rtl';
       result = translated.replace(/\{\{(\d+)\}\}/g, (_match, indexStr: string) => {
-        const index = parseInt(indexStr, 10);
-        return variables[index]?.value ?? `{{${indexStr}}}`;
+        const variable = variables[parseInt(indexStr, 10)];
+        if (variable === undefined) return `{{${indexStr}}}`;
+        return isolate && BIDI_ISOLATED_TYPES.has(variable.type)
+          ? FSI + variable.value + PDI
+          : variable.value;
       });
     }
 
@@ -225,13 +243,16 @@ export class Masker {
       }
     } else if (format === 'simple') {
       const missing = new Set<string>();
+      const isolate = getLocaleDirection(locale) === 'rtl';
       output = translated.replace(/\{\{(\d+)\}\}/g, (match, indexStr: string) => {
-        const value = variables[parseInt(indexStr, 10)]?.value;
-        if (value === undefined) {
+        const variable = variables[parseInt(indexStr, 10)];
+        if (variable === undefined) {
           missing.add(match);
           return match;
         }
-        return value;
+        return isolate && BIDI_ISOLATED_TYPES.has(variable.type)
+          ? FSI + variable.value + PDI
+          : variable.value;
       });
       if (missing.size > 0) {
         return {

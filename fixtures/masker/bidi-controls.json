@@ -1,0 +1,40 @@
+[
+  {
+    "name": "directional marks (LRM/RLM) are stripped from the key",
+    "input": "שלום \u200fעולם\u200e",
+    "expected": {
+      "masked": "שלום עולם",
+      "variables": []
+    }
+  },
+  {
+    "name": "isolate-wrapped number masks to the same key as a bare number",
+    "input": "יש לך \u20685\u2069 פריטים",
+    "expected": {
+      "masked": "יש לך {{0}} פריטים",
+      "variables": [
+        {
+          "value": "5",
+          "type": "number"
+        }
+      ]
+    }
+  },
+  {
+    "name": "embedding and pop controls are stripped",
+    "input": "\u202aACME\u202c rocks",
+    "expected": {
+      "masked": "ACME rocks",
+      "variables": [],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "Arabic letter mark is stripped",
+    "input": "مرحبا\u061c بالعالم",
+    "expected": {
+      "masked": "مرحبا بالعالم",
+      "variables": []
+    }
+  }
+]

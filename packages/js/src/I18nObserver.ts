@@ -1,4 +1,5 @@
-import type { I18nConfig, I18nStatus, IcuValidationResult, IgnoreWordEntry, TranslationEntry, TranslationItem, VariableInfo } from './types';
+import type { I18nConfig, I18nStatus, IcuValidationResult, IgnoreWordEntry, TextDirection, TranslationEntry, TranslationItem, VariableInfo } from './types';
+import { getLocaleDirection } from './direction';
 import { Store } from './Store';
 import { Queue } from './Queue';
 import { Masker } from './Masker';
@@ -18,6 +19,7 @@ const DEFAULTS = {
   keyAttribute: 'data-i18n-key',
   ignoreAttribute: 'data-i18n-ignore',
   scopeAttribute: 'data-i18n-scope',
+  manageDirection: false,
   debug: false,
 };
 
@@ -30,6 +32,8 @@ export class I18nObserver {
   private currentLocale: string;
   private _status: I18nStatus = 'idle';
   private config: Required<I18nConfig>;
+  // dir/lang of directionElement before we first touched them; null = untouched
+  private savedDirection: { dir: string | null; lang: string | null } | null = null;
 
   constructor(userConfig: I18nConfig) {
     const config: Required<I18nConfig> = {
@@ -46,6 +50,8 @@ export class I18nObserver {
       keyAttribute: userConfig.keyAttribute ?? DEFAULTS.keyAttribute,
       ignoreAttribute: userConfig.ignoreAttribute ?? DEFAULTS.ignoreAttribute,
       scopeAttribute: userConfig.scopeAttribute ?? DEFAULTS.scopeAttribute,
+      manageDirection: userConfig.manageDirection ?? DEFAULTS.manageDirection,
+      directionElement: userConfig.directionElement ?? document.documentElement,
       debug: userConfig.debug ?? DEFAULTS.debug,
       locale: userConfig.locale,
       onMissingTranslation: userConfig.onMissingTranslation,
@@ -125,6 +131,7 @@ export class I18nObserver {
   }
 
   start(): void {
+    this.applyDirection();
     this.observer.start();
     this._status = 'observing';
   }
@@ -134,6 +141,7 @@ export class I18nObserver {
     this.queue.clear();
     if (revert) {
       this.translator.revertAll();
+      this.restoreDirection();
     }
     this._status = 'stopped';
   }
@@ -187,7 +195,36 @@ export class I18nObserver {
   setLocale(locale: string): void {
     this.currentLocale = locale;
     this.translator.setLocale(locale);
+    this.applyDirection();
     this.translator.retranslateAll();
+  }
+
+  /** Writing direction of the given locale, defaulting to the current one. */
+  getDirection(locale?: string): TextDirection {
+    return getLocaleDirection(locale ?? this.currentLocale);
+  }
+
+  private applyDirection(): void {
+    if (!this.config.manageDirection) return;
+    const el = this.config.directionElement;
+    if (this.savedDirection === null) {
+      this.savedDirection = { dir: el.getAttribute('dir'), lang: el.getAttribute('lang') };
+    }
+    el.setAttribute('dir', getLocaleDirection(this.currentLocale));
+    el.setAttribute('lang', this.currentLocale);
+  }
+
+  private restoreDirection(): void {
+    if (this.savedDirection === null) return;
+    const el = this.config.directionElement;
+    for (const [attr, value] of Object.entries(this.savedDirection)) {
+      if (value === null) {
+        el.removeAttribute(attr);
+      } else {
+        el.setAttribute(attr, value);
+      }
+    }
+    this.savedDirection = null;
   }
 
   /**

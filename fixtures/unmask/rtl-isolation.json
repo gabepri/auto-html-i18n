@@ -1,0 +1,146 @@
+[
+  {
+    "name": "number is bidi-isolated in an RTL locale",
+    "translated": "יש לך {{0}} פריטים",
+    "variables": [
+      {
+        "value": "5",
+        "type": "number"
+      }
+    ],
+    "locale": "he-IL",
+    "expected": "יש לך \u20685\u2069 פריטים"
+  },
+  {
+    "name": "date is bidi-isolated in an RTL locale",
+    "translated": "עודכן ב-{{0}}",
+    "variables": [
+      {
+        "value": "12/31/2024",
+        "type": "date"
+      }
+    ],
+    "locale": "he-IL",
+    "expected": "עודכן ב-\u206812/31/2024\u2069"
+  },
+  {
+    "name": "url and email are bidi-isolated in an RTL locale",
+    "translated": "בקרו ב-{{0}} או כתבו אל {{1}}",
+    "variables": [
+      {
+        "value": "https://example.com",
+        "type": "url"
+      },
+      {
+        "value": "hi@example.com",
+        "type": "email"
+      }
+    ],
+    "locale": "he",
+    "expected": "בקרו ב-\u2068https://example.com\u2069 או כתבו אל \u2068hi@example.com\u2069"
+  },
+  {
+    "name": "ignoreWord is bidi-isolated in an RTL locale",
+    "translated": "ברוכים הבאים אל {{0}}",
+    "variables": [
+      {
+        "value": "ACME Corp",
+        "type": "ignoreWord"
+      }
+    ],
+    "locale": "he-IL",
+    "config": {
+      "ignoreWords": [
+        "ACME Corp"
+      ]
+    },
+    "expected": "ברוכים הבאים אל \u2068ACME Corp\u2069"
+  },
+  {
+    "name": "symbols and comments are not isolated in an RTL locale",
+    "translated": "הנחה של 50{{0}} {{1}}",
+    "variables": [
+      {
+        "value": "%",
+        "type": "symbol"
+      },
+      {
+        "value": "<!-- x -->",
+        "type": "comment"
+      }
+    ],
+    "locale": "he-IL",
+    "expected": "הנחה של 50% <!-- x -->"
+  },
+  {
+    "name": "Arabic locale also isolates",
+    "translated": "لديك {{0}} عناصر",
+    "variables": [
+      {
+        "value": "7",
+        "type": "number"
+      }
+    ],
+    "locale": "ar-EG",
+    "expected": "لديك \u20687\u2069 عناصر"
+  },
+  {
+    "name": "no isolation in an LTR locale",
+    "translated": "You have {{0}} items",
+    "variables": [
+      {
+        "value": "5",
+        "type": "number"
+      }
+    ],
+    "locale": "en-US",
+    "expected": "You have 5 items"
+  },
+  {
+    "name": "no isolation when locale is omitted",
+    "translated": "You have {{0}} items",
+    "variables": [
+      {
+        "value": "5",
+        "type": "number"
+      }
+    ],
+    "expected": "You have 5 items"
+  },
+  {
+    "name": "LTR script subtag disables isolation for an RTL language",
+    "translated": "3andek {{0}} items",
+    "variables": [
+      {
+        "value": "5",
+        "type": "number"
+      }
+    ],
+    "locale": "ar-Latn",
+    "expected": "3andek 5 items"
+  },
+  {
+    "name": "ICU pattern output is not isolated",
+    "translated": "{0, plural, one {פריט אחד} other {# פריטים}}",
+    "variables": [
+      {
+        "value": "5",
+        "type": "number"
+      }
+    ],
+    "locale": "he-IL",
+    "expected": "5 פריטים"
+  },
+  {
+    "name": "unresolved placeholder is left as-is without isolation",
+    "translated": "יש לך {{0}} מתוך {{1}}",
+    "variables": [
+      {
+        "value": "5",
+        "type": "number"
+      }
+    ],
+    "locale": "he-IL",
+    "expected": "יש לך \u20685\u2069 מתוך {{1}}"
+  }
+]
