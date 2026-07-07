@@ -1,6 +1,6 @@
 {
   "name": "auto-html-i18n",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Framework-agnostic translation library using MutationObserver for automatic DOM translation with ICU MessageFormat support",
   "type": "module",
   "main": "./dist/auto-html-i18n.cjs",
