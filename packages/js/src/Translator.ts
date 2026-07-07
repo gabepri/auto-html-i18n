@@ -22,6 +22,8 @@ interface PendingNode {
   leadingWhitespace: string;
   trailingWhitespace: string;
   originalText: string;
+  /** Displayed content at tracking time — if it changed since, the node is stale. */
+  snapshot: string;
   isAttribute?: boolean;
   attrName?: string;
   isHtml: boolean;
@@ -34,6 +36,11 @@ export class Translator {
   private masker: Masker;
   private config: TranslatorConfig;
   private pendingNodes = new Map<string, Set<PendingNode>>();
+  // Last output we wrote per element/attribute. Lets us tell our own mutation
+  // echoes apart from external rewrites (frameworks patching translated nodes),
+  // and protects newer content from stale applies and reverts.
+  private lastApplied = new WeakMap<Element, string>();
+  private lastAppliedAttrs = new WeakMap<Element, Map<string, string>>();
 
   constructor(
     store: Store,
@@ -48,6 +55,20 @@ export class Translator {
   }
 
   processText(element: Element, originalText: string): void {
+    const last = this.lastApplied.get(element);
+    if (last !== undefined && originalText === last) {
+      return; // echo of our own write
+    }
+    if (element.hasAttribute(this.config.originalAttribute)) {
+      if (last === undefined) {
+        return; // translated content we didn't write (e.g. server-rendered)
+      }
+      // Externally rewritten after we translated it — the marker is stale;
+      // treat the incoming text as fresh source
+      element.removeAttribute(this.config.originalAttribute);
+      this.lastApplied.delete(element);
+    }
+
     const keyOverride = element.getAttribute(this.config.keyAttribute);
     const isHtml = /<[^>]+>/.test(originalText);
     const maskResult = this.masker.mask(originalText);
@@ -87,10 +108,19 @@ export class Translator {
 
   processAttribute(element: Element, attr: string, originalValue: string): void {
     const originalAttrName = `${this.config.originalAttribute}-${attr}`;
+    const lastAttrs = this.lastAppliedAttrs.get(element);
+    const last = lastAttrs?.get(attr);
 
-    // Skip if this attribute was already translated
+    if (last !== undefined && originalValue === last) {
+      return; // echo of our own write
+    }
     if (element.hasAttribute(originalAttrName)) {
-      return;
+      if (last === undefined) {
+        return; // translated attribute we didn't write (e.g. server-rendered)
+      }
+      // Externally rewritten after we translated it — the marker is stale
+      element.removeAttribute(originalAttrName);
+      lastAttrs?.delete(attr);
     }
 
     const maskResult = this.masker.mask(originalValue);
@@ -107,9 +137,7 @@ export class Translator {
     if (entry && entry.status === 'resolved' && entry.value !== null) {
       const resolved = resolveEntry(entry.value, scope);
       if (resolved) {
-        const unmasked = this.masker.unmask(resolved, maskResult.variables, maskResult.tagAttributes, this.config.locale, originalValue);
-        const output = this.masker.applyCasePattern(unmasked, maskResult.casePattern);
-        element.setAttribute(attr, maskResult.leadingWhitespace + output + maskResult.trailingWhitespace);
+        this.applyAttributeTranslation(element, attr, resolved, maskResult, originalValue);
         element.setAttribute(originalAttrName, originalValue);
       }
       return;
@@ -130,6 +158,7 @@ export class Translator {
       leadingWhitespace: maskResult.leadingWhitespace,
       trailingWhitespace: maskResult.trailingWhitespace,
       originalText: originalValue,
+      snapshot: originalValue,
       isAttribute: true,
       attrName: attr,
       isHtml: false,
@@ -152,12 +181,19 @@ export class Translator {
       if (!resolved) continue;
 
       if (node.isAttribute && node.attrName) {
-        const unmasked = this.masker.unmask(resolved, node.variables, node.tagAttributes, this.config.locale, node.originalText);
-        const output = this.masker.applyCasePattern(unmasked, node.casePattern);
-        node.element.setAttribute(node.attrName, node.leadingWhitespace + output + node.trailingWhitespace);
+        // Skip if the attribute changed since it was tracked — the newer
+        // value has its own translation cycle
+        if (node.element.getAttribute(node.attrName) !== node.snapshot) continue;
+
+        this.applyAttributeTranslation(node.element, node.attrName, resolved, node, node.originalText);
         const originalAttrName = `${this.config.originalAttribute}-${node.attrName}`;
         node.element.setAttribute(originalAttrName, node.originalText);
       } else {
+        // Skip if the content changed since it was tracked — the newer
+        // content has its own translation cycle
+        const current = node.isHtml ? node.element.innerHTML : node.element.textContent;
+        if (current !== node.snapshot) continue;
+
         this.applyTranslation(node.element, resolved, {
           masked: cacheKey,
           variables: node.variables,
@@ -225,9 +261,7 @@ export class Translator {
         if (entry && entry.status === 'resolved' && entry.value !== null) {
           const resolved = resolveEntry(entry.value, scope);
           if (resolved) {
-            const unmasked = this.masker.unmask(resolved, maskResult.variables, maskResult.tagAttributes, this.config.locale, originalValue);
-            const output = this.masker.applyCasePattern(unmasked, maskResult.casePattern);
-            element.setAttribute(attr, maskResult.leadingWhitespace + output + maskResult.trailingWhitespace);
+            this.applyAttributeTranslation(element, attr, resolved, maskResult, originalValue);
           }
         } else if (!entry) {
           const item = this.buildItem(cacheKey, originalValue, maskResult.variables, element, `attribute:${attr}`, scope);
@@ -240,6 +274,8 @@ export class Translator {
             leadingWhitespace: maskResult.leadingWhitespace,
             trailingWhitespace: maskResult.trailingWhitespace,
             originalText: originalValue,
+            // Currently displaying the previous locale's output, not the original
+            snapshot: element.getAttribute(attr) ?? '',
             isAttribute: true,
             attrName: attr,
             isHtml: false,
@@ -330,12 +366,36 @@ export class Translator {
 
     if (isHtml) {
       element.innerHTML = output;
+      // Record the browser's serialization, which is what mutation callbacks
+      // will echo back
+      this.lastApplied.set(element, element.innerHTML);
     } else {
       element.textContent = output;
+      this.lastApplied.set(element, output);
     }
 
     element.setAttribute(this.config.originalAttribute, originalText);
     element.removeAttribute(this.config.pendingAttribute);
+  }
+
+  /** Unmasks and writes a translated attribute value, recording what was written. */
+  private applyAttributeTranslation(
+    element: Element,
+    attr: string,
+    value: string,
+    maskResult: Pick<MaskResult, 'variables' | 'tagAttributes' | 'casePattern' | 'leadingWhitespace' | 'trailingWhitespace'>,
+    originalValue: string
+  ): void {
+    const unmasked = this.masker.unmask(value, maskResult.variables, maskResult.tagAttributes, this.config.locale, originalValue);
+    const output = maskResult.leadingWhitespace + this.masker.applyCasePattern(unmasked, maskResult.casePattern) + maskResult.trailingWhitespace;
+    element.setAttribute(attr, output);
+
+    let applied = this.lastAppliedAttrs.get(element);
+    if (!applied) {
+      applied = new Map();
+      this.lastAppliedAttrs.set(element, applied);
+    }
+    applied.set(attr, output);
   }
 
   private trackPendingNode(
@@ -354,6 +414,7 @@ export class Translator {
       leadingWhitespace: maskResult.leadingWhitespace,
       trailingWhitespace: maskResult.trailingWhitespace,
       originalText,
+      snapshot: (isHtml ? element.innerHTML : element.textContent) ?? '',
       isHtml,
       scope,
     });

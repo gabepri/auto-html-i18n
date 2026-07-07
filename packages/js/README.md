@@ -628,6 +628,8 @@ While **auto-html-i18n** is framework-agnostic, here is how you typically initia
 
 When a framework (React, Vue, etc.) re-renders a component, the original untranslated text is written back to the DOM. The library detects this mutation and re-translates it. For cached translations this is instant and invisible. For uncached text, a brief flash may occur on the first render only.
 
+This also covers in-place patches: when a framework updates the text of an already-translated element (e.g. Vue patching a text binding), the library sees that the content no longer matches what it wrote and translates the new text as fresh source. Translations that resolve after the content has already changed are discarded rather than applied over the newer content.
+
 ### React / Next.js
 Initialize in a `useEffect` at your root layout or app component.
 ```javascript

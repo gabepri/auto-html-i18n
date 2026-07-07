@@ -454,6 +454,164 @@ describe('Integration Tests', () => {
       i18n.stop();
       vi.useFakeTimers(); // Restore for afterEach
     });
+
+    it('should re-translate when a framework patches the text node in place (characterData)', async () => {
+      vi.useRealTimers();
+
+      const onMissing = vi.fn().mockResolvedValue(null);
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        initialCache: { 'Hello': 'Hola', 'Goodbye': 'Adiós' },
+        rootElement: root,
+      });
+
+      root.innerHTML = '<p>Hello</p>';
+      i18n.start();
+
+      const p = root.querySelector('p')!;
+      expect(p.textContent).toBe('Hola');
+
+      // Vue-style in-place patch: mutate the existing text node's data
+      (p.firstChild as Text).data = 'Goodbye';
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(p.textContent).toBe('Adiós');
+      expect(p.getAttribute('data-i18n-original')).toBe('Goodbye');
+
+      i18n.stop();
+      vi.useFakeTimers();
+    });
+
+    it('should re-translate when a framework replaces textContent after translation (childList)', async () => {
+      vi.useRealTimers();
+
+      const onMissing = vi.fn().mockResolvedValue(null);
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        initialCache: { 'Hello': 'Hola', 'Goodbye': 'Adiós' },
+        rootElement: root,
+      });
+
+      root.innerHTML = '<p>Hello</p>';
+      i18n.start();
+
+      const p = root.querySelector('p')!;
+      expect(p.textContent).toBe('Hola');
+
+      // Framework re-render: element keeps data-i18n-original, text is replaced
+      p.textContent = 'Goodbye';
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(p.textContent).toBe('Adiós');
+      expect(p.getAttribute('data-i18n-original')).toBe('Goodbye');
+
+      i18n.stop();
+      vi.useFakeTimers();
+    });
+
+    it('should re-translate when a framework patches a translated attribute', async () => {
+      vi.useRealTimers();
+
+      const onMissing = vi.fn().mockResolvedValue(null);
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        initialCache: { 'Enter name': 'Ingrese nombre', 'Enter email': 'Ingrese correo' },
+        rootElement: root,
+      });
+
+      root.innerHTML = '<input placeholder="Enter name" />';
+      i18n.start();
+
+      const input = root.querySelector('input')!;
+      expect(input.getAttribute('placeholder')).toBe('Ingrese nombre');
+
+      input.setAttribute('placeholder', 'Enter email');
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(input.getAttribute('placeholder')).toBe('Ingrese correo');
+      expect(input.getAttribute('data-i18n-original-placeholder')).toBe('Enter email');
+
+      i18n.stop();
+      vi.useFakeTimers();
+    });
+
+    it('should not overwrite patched content with a stale pending translation', async () => {
+      vi.useRealTimers();
+
+      let resolveFirst!: (v: Record<string, string>) => void;
+      const first = new Promise<Record<string, string>>((res) => {
+        resolveFirst = res;
+      });
+      const onMissing = vi.fn()
+        .mockImplementationOnce(() => first) // 'Hello' batch — held open
+        .mockImplementation(async () => ({ 'Goodbye': 'Adiós' }));
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        rootElement: root,
+        debounceTime: 30,
+      });
+
+      root.innerHTML = '<p>Hello</p>';
+      i18n.start();
+
+      // Let the debounce fire; the 'Hello' request is now in flight
+      await new Promise((r) => setTimeout(r, 60));
+      expect(onMissing).toHaveBeenCalledTimes(1);
+
+      const p = root.querySelector('p')!;
+      p.textContent = 'Goodbye'; // patched while 'Hello' is still pending
+
+      // Second batch resolves 'Goodbye' → 'Adiós'
+      await new Promise((r) => setTimeout(r, 80));
+      expect(p.textContent).toBe('Adiós');
+
+      // The stale 'Hello' resolution arrives late — must not clobber the newer content
+      resolveFirst({ 'Hello': 'Bonjour' });
+      await new Promise((r) => setTimeout(r, 20));
+
+      expect(p.textContent).toBe('Adiós');
+
+      i18n.stop();
+      vi.useFakeTimers();
+    });
+
+    it('should not re-enqueue its own translated output (inline-tag echo)', async () => {
+      vi.useRealTimers();
+
+      const onMissing = vi.fn().mockResolvedValue({
+        'Click <a0>here</a0>': 'Clic <a0>aquí</a0>',
+      });
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        rootElement: root,
+        debounceTime: 30,
+      });
+
+      root.innerHTML = '<p>Click <a href="/x">here</a></p>';
+      i18n.start();
+
+      // Translation + echo mutations + another full debounce window
+      await new Promise((r) => setTimeout(r, 150));
+
+      expect(root.querySelector('p')!.textContent).toBe('Clic aquí');
+      expect(onMissing).toHaveBeenCalledTimes(1);
+
+      i18n.stop();
+      vi.useFakeTimers();
+    });
   });
 
   describe('debug mode', () => {

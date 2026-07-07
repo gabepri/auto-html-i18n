@@ -118,12 +118,13 @@ describe('Observer', () => {
       observer.stop();
     });
 
-    it('should skip already-translated nodes (has originalAttribute)', () => {
+    it('should forward already-translated nodes (the translator decides what to skip)', () => {
       root.innerHTML = '<p data-i18n-original="Hello">Hola</p>';
       const { observer, onTextFound } = createObserver(root);
       observer.start();
 
-      expect(onTextFound).not.toHaveBeenCalled();
+      expect(onTextFound).toHaveBeenCalledTimes(1);
+      expect(onTextFound.mock.calls[0]![1]).toBe('Hola');
 
       observer.stop();
     });
@@ -278,7 +279,7 @@ describe('Observer', () => {
       root.innerHTML = '<p data-i18n-original="Hello">Hola</p>';
       const { observer, onTextFound } = createObserver(root);
       observer.start();
-      expect(onTextFound).not.toHaveBeenCalled();
+      onTextFound.mockClear();
 
       observer.reprocessAll();
 
@@ -294,6 +295,7 @@ describe('Observer', () => {
       root.innerHTML = '<p data-i18n-original="Hello">Hola</p><p data-i18n-original="Bye">Adiós</p>';
       const { observer, onTextFound } = createObserver(root);
       observer.start();
+      onTextFound.mockClear();
 
       observer.reprocessAll();
 
@@ -369,18 +371,20 @@ describe('Observer', () => {
     });
   });
 
-  describe('attribute re-translation prevention', () => {
-    it('should skip attributes with original-tracking data attribute during initial scan', () => {
+  describe('attribute forwarding (translator decides what to skip)', () => {
+    it('should forward attributes with original-tracking data attribute during initial scan', () => {
       root.innerHTML = '<input placeholder="Ingrese nombre" data-i18n-original-placeholder="Enter name" />';
       const { observer, onAttributeFound } = createObserver(root);
       observer.start();
 
-      expect(onAttributeFound).not.toHaveBeenCalled();
+      expect(onAttributeFound).toHaveBeenCalledTimes(1);
+      expect(onAttributeFound.mock.calls[0]![1]).toBe('placeholder');
+      expect(onAttributeFound.mock.calls[0]![2]).toBe('Ingrese nombre');
 
       observer.stop();
     });
 
-    it('should skip attribute mutations when original-tracking attribute exists', async () => {
+    it('should forward attribute mutations when original-tracking attribute exists', async () => {
       root.innerHTML = '<input placeholder="Enter name" />';
       const { observer, onAttributeFound } = createObserver(root);
       observer.start();
@@ -391,7 +395,8 @@ describe('Observer', () => {
       input.setAttribute('placeholder', 'Ingrese nombre');
       await waitForMutations();
 
-      expect(onAttributeFound).not.toHaveBeenCalled();
+      expect(onAttributeFound).toHaveBeenCalledTimes(1);
+      expect(onAttributeFound.mock.calls[0]![2]).toBe('Ingrese nombre');
 
       observer.stop();
     });
@@ -407,20 +412,21 @@ describe('Observer', () => {
       observer.stop();
     });
 
-    it('should handle multiple attributes independently on the same element', () => {
+    it('should report every translatable attribute on the same element', () => {
       root.innerHTML = '<img alt="Photo" title="My Photo" data-i18n-original-alt="Photo" />';
       const { observer, onAttributeFound } = createObserver(root);
       observer.start();
 
-      // alt should be skipped (has original-tracking), title should be reported
-      expect(onAttributeFound).toHaveBeenCalledTimes(1);
-      expect(onAttributeFound.mock.calls[0]![1]).toBe('title');
-      expect(onAttributeFound.mock.calls[0]![2]).toBe('My Photo');
+      // Both attributes are forwarded; the translator skips ones it already handled
+      expect(onAttributeFound).toHaveBeenCalledTimes(2);
+      const attrs = onAttributeFound.mock.calls.map((call: unknown[]) => call[1]);
+      expect(attrs).toContain('title');
+      expect(attrs).toContain('alt');
 
       observer.stop();
     });
 
-    it('should skip already-translated attributes during subtree mutation processing', async () => {
+    it('should forward already-translated attributes during subtree mutation processing', async () => {
       const { observer, onAttributeFound } = createObserver(root);
       observer.start();
       onAttributeFound.mockClear();
@@ -431,7 +437,8 @@ describe('Observer', () => {
       root.appendChild(input);
       await waitForMutations();
 
-      expect(onAttributeFound).not.toHaveBeenCalled();
+      expect(onAttributeFound).toHaveBeenCalledTimes(1);
+      expect(onAttributeFound.mock.calls[0]![2]).toBe('Ingrese nombre');
 
       observer.stop();
     });
@@ -442,11 +449,12 @@ describe('Observer', () => {
       const { observer, onTextFound } = createObserver(root);
 
       // Simulate what happens when a synchronous cache hit causes applyTranslation
-      // to mutate the DOM during TreeWalker traversal
-      onTextFound.mockImplementation((element: Element) => {
-        // This simulates Translator.applyTranslation setting textContent + data-i18n-original
+      // to mutate the DOM during TreeWalker traversal. The echo guard mirrors the
+      // translator, which ignores content it already translated.
+      onTextFound.mockImplementation((element: Element, text: string) => {
+        if (element.hasAttribute('data-i18n-original')) return;
         element.textContent = 'translated';
-        element.setAttribute('data-i18n-original', element.textContent);
+        element.setAttribute('data-i18n-original', text);
       });
 
       observer.start();
@@ -458,7 +466,6 @@ describe('Observer', () => {
       await waitForMutations();
 
       // All 3 text nodes should have been found, not just the first one
-      expect(onTextFound).toHaveBeenCalledTimes(3);
       const texts = onTextFound.mock.calls.map((call: unknown[]) => call[1]);
       expect(texts).toContain('Privacy Policy');
       expect(texts).toContain('Terms of Service');
@@ -472,6 +479,7 @@ describe('Observer', () => {
       const found: string[] = [];
 
       onTextFound.mockImplementation((_element: Element, text: string) => {
+        if (_element.hasAttribute('data-i18n-original')) return;
         found.push(text);
         // Mutate the element (simulates synchronous translation from cache)
         _element.textContent = `[translated] ${text}`;

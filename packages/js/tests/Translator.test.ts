@@ -1101,4 +1101,126 @@ describe('Translator', () => {
       expect(input.getAttribute('placeholder')).toBe('10 results');
     });
   });
+
+  describe('externally changed content (stale-state guards)', () => {
+    it('should ignore the echo of its own applied translation', () => {
+      const { translator, store, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+      store.set('es', 'Hello', 'Hola');
+
+      const p = document.createElement('p');
+      p.textContent = 'Hello';
+      root.appendChild(p);
+      translator.processText(p, 'Hello');
+      expect(p.textContent).toBe('Hola');
+
+      // The observer echoes our own write back at us
+      translator.processText(p, 'Hola');
+
+      expect(enqueueSpy).not.toHaveBeenCalled();
+      expect(p.hasAttribute('data-i18n-pending')).toBe(false);
+      expect(p.textContent).toBe('Hola');
+      expect(p.getAttribute('data-i18n-original')).toBe('Hello');
+    });
+
+    it('should ignore the innerHTML echo after an inline-tag translation', () => {
+      const { translator, store, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+      store.set('es', 'Click <a0>here</a0>', 'Clic <a0>aquí</a0>');
+
+      const p = document.createElement('p');
+      p.innerHTML = 'Click <a href="/x">here</a>';
+      root.appendChild(p);
+      translator.processText(p, 'Click <a href="/x">here</a>');
+      expect(p.textContent).toBe('Clic aquí');
+
+      // Mutation-driven re-walk aggregates the translated innerHTML back to us
+      translator.processText(p, p.innerHTML);
+
+      expect(enqueueSpy).not.toHaveBeenCalled();
+      expect(p.hasAttribute('data-i18n-pending')).toBe(false);
+      expect(p.textContent).toBe('Clic aquí');
+    });
+
+    it('should not touch translated content it did not write itself (e.g. server-rendered)', () => {
+      const { translator, store, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      root.innerHTML = '<p data-i18n-original="Hello">Hola</p>';
+      const p = root.querySelector('p')!;
+
+      translator.processText(p, 'Hola');
+
+      expect(enqueueSpy).not.toHaveBeenCalled();
+      expect(p.hasAttribute('data-i18n-pending')).toBe(false);
+      expect(p.textContent).toBe('Hola');
+      expect(store.has('es', 'Hola')).toBe(false);
+    });
+
+    it('should not touch translated attributes it did not write itself (e.g. server-rendered)', () => {
+      const { translator, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+
+      root.innerHTML = '<input placeholder="Ingrese nombre" data-i18n-original-placeholder="Enter name" />';
+      const input = root.querySelector('input')!;
+
+      translator.processAttribute(input, 'placeholder', 'Ingrese nombre');
+
+      expect(enqueueSpy).not.toHaveBeenCalled();
+      expect(input.getAttribute('placeholder')).toBe('Ingrese nombre');
+    });
+
+    it('should re-translate an element whose text was externally replaced after translation', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Hello', 'Hola');
+      store.set('es', 'Goodbye', 'Adiós');
+
+      const p = document.createElement('p');
+      p.textContent = 'Hello';
+      root.appendChild(p);
+      translator.processText(p, 'Hello');
+      expect(p.textContent).toBe('Hola');
+
+      // Framework patches the element with new source text
+      p.textContent = 'Goodbye';
+      translator.processText(p, 'Goodbye');
+
+      expect(p.textContent).toBe('Adiós');
+      expect(p.getAttribute('data-i18n-original')).toBe('Goodbye');
+    });
+
+    it('applyPending should skip a node whose content changed since it was tracked', () => {
+      const { translator, store } = createDeps();
+
+      const p = document.createElement('p');
+      p.textContent = 'Hello';
+      root.appendChild(p);
+      translator.processText(p, 'Hello'); // uncached — tracked as pending
+
+      // Framework patches the element while the translation is in flight
+      p.textContent = 'Changed externally';
+
+      store.set('es', 'Hello', 'Hola');
+      translator.applyPending('Hello');
+
+      expect(p.textContent).toBe('Changed externally');
+    });
+
+    it('applyPending should skip an attribute whose value changed since it was tracked', () => {
+      const { translator, store } = createDeps();
+
+      const input = document.createElement('input');
+      input.setAttribute('placeholder', 'Enter name');
+      root.appendChild(input);
+      translator.processAttribute(input, 'placeholder', 'Enter name'); // uncached — tracked
+
+      input.setAttribute('placeholder', 'Enter email');
+
+      store.set('es', 'Enter name', 'Ingrese nombre');
+      translator.applyPending('Enter name');
+
+      expect(input.getAttribute('placeholder')).toBe('Enter email');
+      expect(input.hasAttribute('data-i18n-original-placeholder')).toBe(false);
+    });
+  });
 });
