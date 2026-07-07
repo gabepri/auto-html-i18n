@@ -647,7 +647,7 @@ describe('Masker', () => {
 
     it('should handle ICU format error gracefully', () => {
       const masker = createMasker();
-      // Malformed ICU — should not throw, falls back to raw pattern
+      // Malformed ICU without an original — falls back to raw pattern (legacy behavior)
       const result = masker.unmask(
         '{0, plural, {broken}',
         [v('5', 'number')],
@@ -655,6 +655,55 @@ describe('Masker', () => {
         'en'
       );
       expect(result).toBe('{0, plural, {broken}');
+    });
+
+    it('should fall back to the original text on ICU parse error when original is provided', () => {
+      const masker = createMasker();
+      const result = masker.unmask(
+        '{0, plural, {broken}',
+        [v('5', 'number')],
+        new Map(),
+        'en',
+        'You have 5 items'
+      );
+      expect(result).toBe('You have 5 items');
+    });
+
+    it('should fall back to the original text when ICU evaluation fails on missing arguments', () => {
+      const masker = createMasker();
+      // Pattern references {1} but only one variable exists — format() throws
+      const result = masker.unmask(
+        '{0} tiene {1} gatos',
+        [v('John', 'ignoreWord')],
+        new Map(),
+        'es',
+        'John has cats'
+      );
+      expect(result).toBe('John has cats');
+    });
+
+    it('should trim edge whitespace from the fallback original for caller re-wrapping', () => {
+      const masker = createMasker();
+      const result = masker.unmask(
+        '{0, plural, {broken}',
+        [v('5', 'number')],
+        new Map(),
+        'en',
+        '  5 items \n'
+      );
+      expect(result).toBe('5 items');
+    });
+
+    it('should ignore the original fallback when ICU evaluation succeeds', () => {
+      const masker = createMasker();
+      const result = masker.unmask(
+        '{0, plural, one {# oveja} other {# ovejas}}',
+        [v('5', 'number')],
+        new Map(),
+        'es',
+        '5 sheep'
+      );
+      expect(result).toBe('5 ovejas');
     });
   });
 

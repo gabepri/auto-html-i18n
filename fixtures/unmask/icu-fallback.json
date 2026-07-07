@@ -1,0 +1,42 @@
+[
+  {
+    "name": "malformed ICU pattern falls back to the original text when provided",
+    "translated": "{0, plural, {broken}",
+    "variables": [{ "value": "5", "type": "number" }],
+    "locale": "es",
+    "original": "5 items",
+    "expected": "5 items"
+  },
+  {
+    "name": "malformed ICU pattern without an original falls back to the raw pattern",
+    "translated": "{0, plural, {broken}",
+    "variables": [{ "value": "5", "type": "number" }],
+    "locale": "es",
+    "expected": "{0, plural, {broken}"
+  },
+  {
+    "name": "fallback trims edge whitespace from the original for caller re-wrapping",
+    "translated": "{0, plural, {broken}",
+    "variables": [{ "value": "5", "type": "number" }],
+    "locale": "es",
+    "original": "  5 items \n",
+    "expected": "5 items"
+  },
+  {
+    "name": "valid ICU pattern evaluates normally and ignores the original fallback",
+    "translated": "{0, plural, one {# oveja} other {# ovejas}}",
+    "variables": [{ "value": "5", "type": "number" }],
+    "locale": "es",
+    "original": "5 sheep",
+    "expected": "5 ovejas"
+  },
+  {
+    "name": "fallback returns the original verbatim including its inline tags",
+    "translated": "<a0>{0, plural, {broken}</a0>",
+    "variables": [{ "value": "3", "type": "number" }],
+    "tagAttributes": { "a0": { "href": "/items" } },
+    "locale": "es",
+    "original": "<a href=\"/items\">3 items</a>",
+    "expected": "<a href=\"/items\">3 items</a>"
+  }
+]

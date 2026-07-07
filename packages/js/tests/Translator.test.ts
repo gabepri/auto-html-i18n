@@ -1059,4 +1059,46 @@ describe('Translator', () => {
       expect(debug.elementOpenTag).toMatch(/^<button\s/);
     });
   });
+
+  describe('ICU evaluation failure fallback', () => {
+    it('should apply the original text when a cached ICU translation fails to evaluate', () => {
+      const { translator, store } = createDeps();
+      store.set('es', '{{0}} sheep', '{0, plural, {broken}');
+
+      const p = document.createElement('p');
+      p.textContent = '5 sheep';
+      root.appendChild(p);
+
+      translator.processText(p, '5 sheep');
+
+      expect(p.textContent).toBe('5 sheep');
+      expect(p.getAttribute('data-i18n-original')).toBe('5 sheep');
+    });
+
+    it('should preserve edge whitespace when falling back to the original text', () => {
+      const { translator, store } = createDeps();
+      store.set('es', '{{0}} sheep', '{0, plural, {broken}');
+
+      const p = document.createElement('p');
+      p.textContent = '  5 sheep  ';
+      root.appendChild(p);
+
+      translator.processText(p, '  5 sheep  ');
+
+      expect(p.textContent).toBe('  5 sheep  ');
+    });
+
+    it('should apply the original attribute value when a cached ICU translation fails to evaluate', () => {
+      const { translator, store } = createDeps();
+      store.set('es', '{{0}} results', '{0, plural, {broken}');
+
+      const input = document.createElement('input');
+      input.setAttribute('placeholder', '10 results');
+      root.appendChild(input);
+
+      translator.processAttribute(input, 'placeholder', '10 results');
+
+      expect(input.getAttribute('placeholder')).toBe('10 results');
+    });
+  });
 });

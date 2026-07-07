@@ -161,7 +161,8 @@ export class Masker {
     translated: string,
     variables: VariableInfo[],
     tagAttributes: Map<string, Record<string, string>>,
-    locale?: string
+    locale?: string,
+    original?: string
   ): string {
     if (translated === '') {
       return '';
@@ -178,7 +179,13 @@ export class Masker {
       try {
         result = this.evaluateICU(translated, variables, locale);
       } catch {
-        // Fallback: return raw pattern on ICU evaluation error
+        if (original !== undefined) {
+          // Fall back to the untranslated source text. It needs no tag
+          // restoration or sanitizing, but is trimmed so callers can re-apply
+          // the edge whitespace they extracted at mask time.
+          return original.replace(/^\s+/, '').replace(/\s+$/, '');
+        }
+        // No original available — fall back to the raw pattern
         result = translated;
       }
     } else {

@@ -21,19 +21,35 @@ interface FixtureCase {
   };
 }
 
+interface UnmaskFixtureCase {
+  name: string;
+  translated: string;
+  variables?: VariableInfo[];
+  tagAttributes?: Record<string, Record<string, string>>;
+  locale?: string;
+  original?: string;
+  config?: FixtureCase['config'];
+  expected: string;
+}
+
 const DEFAULT_ALLOWED_TAGS = ['a', 'b', 'i', 'u', 'strong', 'em', 'span', 'small', 'mark', 'del'];
 
 // Vitest runs from the package directory (packages/js); fixtures live at the repo root.
 const fixturesDir = resolve(process.cwd(), '../../fixtures/masker');
+const unmaskFixturesDir = resolve(process.cwd(), '../../fixtures/unmask');
 
-function loadFixtures(): Array<{ file: string; cases: FixtureCase[] }> {
-  return readdirSync(fixturesDir)
+function loadFixtureDir<T>(dir: string): Array<{ file: string; cases: T[] }> {
+  return readdirSync(dir)
     .filter((f) => f.endsWith('.json'))
     .sort()
     .map((file) => {
-      const cases = JSON.parse(readFileSync(join(fixturesDir, file), 'utf8')) as FixtureCase[];
+      const cases = JSON.parse(readFileSync(join(dir, file), 'utf8')) as T[];
       return { file, cases };
     });
+}
+
+function loadFixtures(): Array<{ file: string; cases: FixtureCase[] }> {
+  return loadFixtureDir<FixtureCase>(fixturesDir);
 }
 
 function buildConfig(cfg: FixtureCase['config']): MaskerConfig {
@@ -61,6 +77,29 @@ describe('shared masker fixtures', () => {
           expect(result.casePattern).toBe(c.expected.casePattern ?? 'lower');
           expect(result.leadingWhitespace).toBe(c.expected.leadingWhitespace ?? '');
           expect(result.trailingWhitespace).toBe(c.expected.trailingWhitespace ?? '');
+        });
+      }
+    });
+  }
+});
+
+describe('shared unmask fixtures', () => {
+  for (const { file, cases } of loadFixtureDir<UnmaskFixtureCase>(unmaskFixturesDir)) {
+    describe(file, () => {
+      for (const c of cases) {
+        it(c.name, () => {
+          const masker = new Masker(buildConfig(c.config));
+          const tagAttributes = new Map(Object.entries(c.tagAttributes ?? {}));
+
+          const result = masker.unmask(
+            c.translated,
+            c.variables ?? [],
+            tagAttributes,
+            c.locale,
+            c.original
+          );
+
+          expect(result).toBe(c.expected);
         });
       }
     });

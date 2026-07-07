@@ -417,6 +417,7 @@ Use ICU MessageFormat when:
    - **Simple format** (`{{0}}`): Direct substitution (backward compatible)
    - **ICU format** (`{0}`): Evaluated client-side with `intl-messageformat`
 3. The library auto-detects the format: double-brace `{{0}}` = simple, single-brace `{0}` = ICU.
+4. If an ICU pattern fails to parse or evaluate (malformed pattern, missing arguments), the element falls back to its original untranslated text — the raw pattern is never rendered to users.
 
 ### Variable Arguments
 

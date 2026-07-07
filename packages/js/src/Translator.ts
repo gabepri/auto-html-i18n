@@ -107,7 +107,7 @@ export class Translator {
     if (entry && entry.status === 'resolved' && entry.value !== null) {
       const resolved = resolveEntry(entry.value, scope);
       if (resolved) {
-        const unmasked = this.masker.unmask(resolved, maskResult.variables, maskResult.tagAttributes, this.config.locale);
+        const unmasked = this.masker.unmask(resolved, maskResult.variables, maskResult.tagAttributes, this.config.locale, originalValue);
         const output = this.masker.applyCasePattern(unmasked, maskResult.casePattern);
         element.setAttribute(attr, maskResult.leadingWhitespace + output + maskResult.trailingWhitespace);
         element.setAttribute(originalAttrName, originalValue);
@@ -152,7 +152,7 @@ export class Translator {
       if (!resolved) continue;
 
       if (node.isAttribute && node.attrName) {
-        const unmasked = this.masker.unmask(resolved, node.variables, node.tagAttributes, this.config.locale);
+        const unmasked = this.masker.unmask(resolved, node.variables, node.tagAttributes, this.config.locale, node.originalText);
         const output = this.masker.applyCasePattern(unmasked, node.casePattern);
         node.element.setAttribute(node.attrName, node.leadingWhitespace + output + node.trailingWhitespace);
         const originalAttrName = `${this.config.originalAttribute}-${node.attrName}`;
@@ -225,7 +225,7 @@ export class Translator {
         if (entry && entry.status === 'resolved' && entry.value !== null) {
           const resolved = resolveEntry(entry.value, scope);
           if (resolved) {
-            const unmasked = this.masker.unmask(resolved, maskResult.variables, maskResult.tagAttributes, this.config.locale);
+            const unmasked = this.masker.unmask(resolved, maskResult.variables, maskResult.tagAttributes, this.config.locale, originalValue);
             const output = this.masker.applyCasePattern(unmasked, maskResult.casePattern);
             element.setAttribute(attr, maskResult.leadingWhitespace + output + maskResult.trailingWhitespace);
           }
@@ -325,7 +325,7 @@ export class Translator {
     isHtml: boolean,
     casePattern: CasePattern
   ): void {
-    const unmasked = this.masker.unmask(value, maskResult.variables, maskResult.tagAttributes, this.config.locale);
+    const unmasked = this.masker.unmask(value, maskResult.variables, maskResult.tagAttributes, this.config.locale, originalText);
     const output = maskResult.leadingWhitespace + this.masker.applyCasePattern(unmasked, casePattern) + maskResult.trailingWhitespace;
 
     if (isHtml) {

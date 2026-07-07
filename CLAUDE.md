@@ -49,7 +49,7 @@ Live, mutation-driven via `MutationObserver`:
 - **Translator** — Coordinates cache lookup → masking → resolution → DOM update. Tracks pending nodes by cache key (multiple nodes can share one key, resolved atomically).
 - **Store** — Two-tier Map (`locale → key → StoreEntry`). Entries have status: `pending | resolved | reported`. Won't overwrite resolved with pending.
 - **Queue** — Debounces (200ms default) and batches (50/request). Deduplicates on masked key. Chunks large batches sequentially.
-- **Masker** — Normalizes text to cache keys. Masks numbers, dates (MM/DD/YYYY, YYYY-MM-DD, DD.MM.YYYY), ignoreWords (sorted longest-first for greedy matching), and inline HTML tags. Strips tag attributes in key (e.g. `<a href="/x">click</a>` → `<a0>click</a0>`), re-injects after translation.
+- **Masker** — Normalizes text to cache keys. Masks numbers, dates (MM/DD/YYYY, YYYY-MM-DD, DD.MM.YYYY), ignoreWords (sorted longest-first for greedy matching), and inline HTML tags. Strips tag attributes in key (e.g. `<a href="/x">click</a>` → `<a0>click</a0>`), re-injects after translation. `unmask()` evaluates ICU patterns; on ICU failure it falls back to the caller-provided original source text (raw pattern only when no original is given).
 - **Resolver** — Generates compound variant candidates from context (e.g. `female_formal` → `female` → fallback). Respects `contextOrder`.
 
 Failed translations are marked `reported` to prevent infinite re-queuing.
@@ -60,7 +60,7 @@ Single-pass synchronous transform — HTML string in, translated HTML string out
 
 ## Shared fixtures
 
-Behavior-critical Masker test cases live in [fixtures/masker/](fixtures/masker/) as JSON. Both packages have a fixture-driven test suite that loads these and asserts the local Masker reproduces them. Adding a fixture exercises both ports automatically — this is the cross-port regression net.
+Behavior-critical Masker test cases live in [fixtures/masker/](fixtures/masker/) (masking) and [fixtures/unmask/](fixtures/unmask/) (unmasking/ICU fallback) as JSON. Both packages have a fixture-driven test suite that loads these and asserts the local Masker reproduces them. Adding a fixture exercises both ports automatically — this is the cross-port regression net.
 
 ## Development Workflow
 
