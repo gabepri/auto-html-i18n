@@ -372,6 +372,117 @@ describe('Translator', () => {
     });
   });
 
+  describe('inline HTML translation - node preservation (morph)', () => {
+    it('reuses the original child element instance (and its listeners) on apply', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Click <a0>here</a0> to continue', 'Haga clic <a0>aqui</a0> para continuar');
+
+      const p = document.createElement('p');
+      p.innerHTML = 'Click <a href="/x">here</a> to continue';
+      root.appendChild(p);
+      const originalAnchor = p.querySelector('a')!;
+      let clicked = 0;
+      originalAnchor.addEventListener('click', () => { clicked++; });
+
+      translator.processText(p, 'Click <a href="/x">here</a> to continue');
+
+      const afterAnchor = p.querySelector('a')!;
+      expect(afterAnchor).toBe(originalAnchor); // same node instance, not recreated
+      expect(afterAnchor.getAttribute('href')).toBe('/x');
+      expect(afterAnchor.textContent).toBe('aqui');
+      afterAnchor.dispatchEvent(new Event('click'));
+      expect(clicked).toBe(1); // listener survived the translation
+      expect(p.innerHTML).toBe('Haga clic <a href="/x">aqui</a> para continuar');
+    });
+
+    it('preserves instances when the translation reorders inline tags', () => {
+      const { translator, store } = createDeps();
+      store.set('es', '<a0>first</a0> and <b0>second</b0>', '<b0>segundo</b0> y <a0>primero</a0>');
+
+      const p = document.createElement('p');
+      p.innerHTML = '<a href="/1">first</a> and <b>second</b>';
+      root.appendChild(p);
+      const a = p.querySelector('a')!;
+      const b = p.querySelector('b')!;
+
+      translator.processText(p, '<a href="/1">first</a> and <b>second</b>');
+
+      expect(p.querySelector('a')).toBe(a);
+      expect(p.querySelector('b')).toBe(b);
+      expect(a.textContent).toBe('primero');
+      expect(b.textContent).toBe('segundo');
+      expect(p.innerHTML).toBe('<b>segundo</b> y <a href="/1">primero</a>');
+    });
+
+    it('reuses the node but still strips its event-handler attributes', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Click <a0>here</a0>', 'Clic <a0>aqui</a0>');
+
+      const p = document.createElement('p');
+      p.innerHTML = 'Click <a href="/ok" onclick="alert(1)">here</a>';
+      root.appendChild(p);
+      const anchor = p.querySelector('a')!;
+
+      translator.processText(p, 'Click <a href="/ok" onclick="alert(1)">here</a>');
+
+      expect(p.querySelector('a')).toBe(anchor); // same instance
+      expect(anchor.getAttribute('href')).toBe('/ok');
+      expect(anchor.hasAttribute('onclick')).toBe(false); // handler attr stripped
+      expect(p.innerHTML).toBe('Clic <a href="/ok">aqui</a>');
+    });
+
+    it('preserves the anchor instance across a re-translate (locale switch)', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Click <a0>here</a0>', 'Clic <a0>aqui</a0>');
+      store.set('fr', 'Click <a0>here</a0>', 'Cliquez <a0>ici</a0>');
+
+      const p = document.createElement('p');
+      p.innerHTML = 'Click <a href="/x">here</a>';
+      root.appendChild(p);
+
+      translator.processText(p, 'Click <a href="/x">here</a>');
+      const anchor = p.querySelector('a')!;
+      expect(anchor.textContent).toBe('aqui');
+
+      translator.setLocale('fr');
+      translator.retranslateAll();
+
+      expect(p.querySelector('a')).toBe(anchor); // same instance across the switch
+      expect(anchor.textContent).toBe('ici');
+      expect(p.innerHTML).toBe('Cliquez <a href="/x">ici</a>');
+    });
+
+    it('falls back to a plain replace (output still correct) when the tag set changes', () => {
+      const { translator, store } = createDeps();
+      // Translation introduces a <b> the source never had — markers no longer
+      // line up 1:1, so the morph bails to a correct innerHTML assignment.
+      store.set('es', 'See <a0>docs</a0>', 'Ver <a0>docs</a0> <b>ahora</b>');
+
+      const p = document.createElement('p');
+      p.innerHTML = 'See <a href="/d">docs</a>';
+      root.appendChild(p);
+
+      translator.processText(p, 'See <a href="/d">docs</a>');
+
+      expect(p.innerHTML).toBe('Ver <a href="/d">docs</a> <b>ahora</b>');
+    });
+
+    it('renders correctly (via fallback) for an ICU aggregated translation', () => {
+      const { translator, store } = createDeps();
+      // ICU selects one branch at eval time, so the morph can't match markers and
+      // falls back — the evaluated output must still be written correctly.
+      store.set('es', '<b0>{{0}}</b0> sheep', '{0, plural, one {<b0># oveja</b0>} other {<b0># ovejas</b0>}}');
+
+      const p = document.createElement('p');
+      p.innerHTML = '<b>5</b> sheep';
+      root.appendChild(p);
+
+      translator.processText(p, '<b>5</b> sheep');
+
+      expect(p.innerHTML).toBe('<b>5 ovejas</b>');
+    });
+  });
+
   describe('skipping untranslatable content', () => {
     it('should skip text that masks to only variables', () => {
       const { translator, queue } = createDeps();

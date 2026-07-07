@@ -3,6 +3,11 @@ import { Store } from './Store';
 import { Queue } from './Queue';
 import { Masker } from './Masker';
 
+// ICU plural/select constructs pick one branch at evaluation time, so the masked
+// markers (which appear in every branch) won't line up with the evaluated output.
+// When we detect one, skip the node-preserving morph and do a plain replace.
+const ICU_PATTERN = /\{\s*\w+\s*,\s*(?:plural|select|selectordinal)\b/;
+
 export interface TranslatorConfig {
   locale: string;
   originalAttribute: string;
@@ -41,6 +46,10 @@ export class Translator {
   // and protects newer content from stale applies and reverts.
   private lastApplied = new WeakMap<Element, string>();
   private lastAppliedAttrs = new WeakMap<Element, Map<string, string>>();
+  // Marker identity (e.g. "a0", "span1") recorded per inline child element we've
+  // placed in an aggregated unit, so a later re-translate can reuse the same live
+  // nodes even when a translation reordered them. See morphInto/buildMarkerToNode.
+  private nodeMarkers = new WeakMap<Element, string>();
 
   constructor(
     store: Store,
@@ -390,7 +399,7 @@ export class Translator {
     const output = maskResult.leadingWhitespace + this.masker.applyCasePattern(unmasked, casePattern) + maskResult.trailingWhitespace;
 
     if (isHtml) {
-      element.innerHTML = output;
+      this.morphInto(element, output, value);
       // Record the browser's serialization, which is what mutation callbacks
       // will echo back
       this.lastApplied.set(element, element.innerHTML);
@@ -401,6 +410,104 @@ export class Translator {
 
     element.setAttribute(this.config.originalAttribute, originalText);
     element.removeAttribute(this.config.pendingAttribute);
+  }
+
+  /**
+   * Write translated HTML into `element` while preserving the original child
+   * element instances (and their event listeners / framework bindings) wherever
+   * possible. Each inline tag in the source was masked to a `<tagN>` marker; we
+   * reuse the live node that marker points to and graft the translated content
+   * into it, instead of recreating everything via `innerHTML =`. Falls back to a
+   * plain innerHTML assignment whenever the markers can't be matched 1:1 (ICU
+   * branch selection, or tags the translation added/dropped), so the written
+   * output is always correct — node reuse is a best-effort enhancement over it.
+   */
+  private morphInto(element: Element, output: string, maskedValue: string): void {
+    if (ICU_PATTERN.test(maskedValue)) {
+      element.innerHTML = output;
+      return;
+    }
+
+    // Opening markers in document order, e.g. ["a0", "span1"]. Closing markers
+    // (</a0>) and variable masks ({{0}}) don't match this and are ignored.
+    const markers: string[] = [];
+    const markerRe = /<(\w+?)(\d+)>/g;
+    let match: RegExpExecArray | null;
+    while ((match = markerRe.exec(maskedValue)) !== null) {
+      markers.push(`${match[1]}${match[2]}`);
+    }
+
+    const template = document.createElement('template');
+    template.innerHTML = output;
+    const fragment = template.content;
+    const outElements = fragment.querySelectorAll('*');
+
+    // unmask preserves tree shape, so the k-th output element lines up with the
+    // k-th opening marker. If they don't, we can't map reliably — bail to a plain
+    // replace (correct output, just without node reuse).
+    if (outElements.length !== markers.length) {
+      element.innerHTML = output;
+      return;
+    }
+
+    const markerToNode = this.buildMarkerToNode(element);
+
+    for (let k = 0; k < outElements.length; k++) {
+      const outElement = outElements[k]!;
+      const marker = markers[k]!;
+      const original = markerToNode.get(marker);
+
+      if (original && original.tagName === outElement.tagName) {
+        // Reuse the live node: replace its content with the translated children
+        // and strip inline event-handler attributes, matching the sanitization
+        // the string path applies through unmask.
+        while (original.firstChild) original.removeChild(original.firstChild);
+        while (outElement.firstChild) original.appendChild(outElement.firstChild);
+        for (const name of original.getAttributeNames()) {
+          if (name.toLowerCase().startsWith('on')) original.removeAttribute(name);
+        }
+        outElement.replaceWith(original);
+        this.nodeMarkers.set(original, marker);
+      } else {
+        // A tag the translation introduced with no source counterpart: keep the
+        // freshly parsed node, but record its marker for future re-translates.
+        this.nodeMarkers.set(outElement, marker);
+      }
+    }
+
+    element.replaceChildren(...Array.from(fragment.childNodes));
+  }
+
+  /**
+   * Map each inline-tag marker ("a0", "span1", …) to the live element it refers
+   * to within `element`. On the first apply the subtree is the source, so we
+   * reproduce the Masker's per-tag-name, 0-based, document-order numbering. Once
+   * a subtree has been morphed its elements carry a recorded marker (nodeMarkers),
+   * which we trust on re-translate so reordered/duplicate tags still map correctly.
+   */
+  private buildMarkerToNode(element: Element): Map<string, Element> {
+    const elements: Element[] = [];
+    const collect = (parent: Element): void => {
+      for (const child of parent.children) {
+        elements.push(child);
+        collect(child);
+      }
+    };
+    collect(element);
+
+    const map = new Map<string, Element>();
+    if (elements.length > 0 && elements.every((e) => this.nodeMarkers.has(e))) {
+      for (const e of elements) map.set(this.nodeMarkers.get(e)!, e);
+    } else {
+      const counters = new Map<string, number>();
+      for (const e of elements) {
+        const tag = e.tagName.toLowerCase();
+        const n = counters.get(tag) ?? 0;
+        counters.set(tag, n + 1);
+        map.set(`${tag}${n}`, e);
+      }
+    }
+    return map;
   }
 
   /** Unmasks and writes a translated attribute value, recording what was written. */

@@ -422,6 +422,8 @@ The library applies the translation and re-injects all original variables and at
 
 * **Example:** Masked key `Please click <a0>here</a0>` → Translation `Haga clic <a0>aqui</a0>` → Result `Haga clic <a href="/login">aqui</a>`
 
+For units that contain inline tags, the result is applied by **morphing** rather than replacing `innerHTML`: the library reuses the *original* child element nodes (matched to their `<a0>`/`<span1>` markers) and grafts the translated text into them. This preserves each element's identity — so event listeners and framework bindings (e.g. a Vue/React `router-link`'s click handler) survive translation, and only the text changes. If a translation can't be mapped back to the source tags one-to-one (an ICU pattern that selects a branch, or tags the translation adds/drops), it falls back to a plain `innerHTML` write, which is still correct but recreates the nodes.
+
 ### 3. Handling Plurals (Automatic)
 
 Since the library observes the rendered DOM, pluralization is handled naturally by the masking process. You do not need to set a global `plural` context.
@@ -648,7 +650,7 @@ On first load, users may briefly see source-language text before translations ar
 The library reconstructs translated HTML by re-injecting inline tags and attributes into the DOM. Because these translations come from your backend, it is important to ensure the response is trustworthy.
 
 - **Tag allowlist:** Only tags listed in `allowedInlineTags` are permitted in restored output. Any *new* tags a translation introduces that are not in the allowlist are escaped as plain text. (Non-allowed tags from your own source are captured as `'markup'` variables at mask time and restored verbatim — the translation cannot inject content into those slots.)
-- **Attribute stripping:** Event handler attributes (e.g., `onclick`, `onerror`) are always stripped from restored tags, even if they appear in the translation response.
+- **Attribute stripping:** Event handler attributes (e.g., `onclick`, `onerror`) are always stripped from restored tags — including from original nodes reused when morphing an aggregated translation — even if they appear in the translation response.
 - **Recommendation:** Ensure your translation backend is authenticated and returns sanitized content. If using an LLM, validate responses before returning them to the client.
 
 ---
