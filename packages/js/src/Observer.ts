@@ -251,8 +251,15 @@ export class Observer {
     for (const child of children) {
       if (!this.isFullyInline(child)) return false;
     }
-    // Single inline child with no sibling text is just a wrapper — skip aggregation
-    if (children.length === 1 && !this.hasDirectTextContent(element)) {
+    // Aggregate only a genuine formatted sentence — one with its own direct,
+    // interleaved text. A container whose children are all inline elements but
+    // which has no direct text of its own (a nav menu, link list, or button
+    // group) is structural, not a sentence: aggregating it would collapse the
+    // whole subtree into one cache key and one innerHTML unit whose apply
+    // recreates the child nodes (dropping their framework listeners). Translate
+    // such children individually so each keeps its own key and its live DOM node.
+    // (This subsumes the single-inline-child wrapper case.)
+    if (!this.hasDirectTextContent(element)) {
       return false;
     }
     return true;

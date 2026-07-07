@@ -594,15 +594,85 @@ describe('Observer', () => {
       observer.stop();
     });
 
-    it('should still aggregate multiple inline children without direct text', () => {
+    it('should not aggregate multiple inline children without direct text', () => {
+      // A container whose children are all inline elements but which has no
+      // direct text of its own is structural (a menu / link list), not a
+      // formatted sentence: translate each child individually so its DOM node
+      // (and any framework listeners) survives.
       root.innerHTML = '<p><b>Hello</b><i>World</i></p>';
+      const { observer, onTextFound } = createObserver(root);
+      observer.start();
+
+      expect(onTextFound).toHaveBeenCalledTimes(2);
+      const [firstEl, firstText] = onTextFound.mock.calls[0]!;
+      const [secondEl, secondText] = onTextFound.mock.calls[1]!;
+      expect(firstEl.tagName).toBe('B');
+      expect(firstText).toBe('Hello');
+      expect(secondEl.tagName).toBe('I');
+      expect(secondText).toBe('World');
+
+      observer.stop();
+    });
+
+    it('should not aggregate a pure link-list container (nav menu)', () => {
+      // The reported bug: a dropdown whose only children are router-link <a>s.
+      // Aggregating + innerHTML apply would recreate the anchors and drop their
+      // framework click listeners. Each anchor must be its own unit.
+      root.innerHTML = '<nav><a href="/a">Plan</a><a href="/b">Earnings</a></nav>';
+      const { observer, onTextFound } = createObserver(root);
+      observer.start();
+
+      expect(onTextFound).toHaveBeenCalledTimes(2);
+      const [firstEl, firstText] = onTextFound.mock.calls[0]!;
+      const [secondEl, secondText] = onTextFound.mock.calls[1]!;
+      expect(firstEl.tagName).toBe('A');
+      expect(firstText).toBe('Plan');
+      expect(secondEl.tagName).toBe('A');
+      expect(secondText).toBe('Earnings');
+
+      observer.stop();
+    });
+
+    it('should not aggregate a link list separated by whitespace only', () => {
+      root.innerHTML = '<nav> <a href="/a">Home</a> <a href="/b">About</a> </nav>';
+      const { observer, onTextFound } = createObserver(root);
+      observer.start();
+
+      expect(onTextFound).toHaveBeenCalledTimes(2);
+      expect(onTextFound.mock.calls[0]![0].tagName).toBe('A');
+      expect(onTextFound.mock.calls[0]![1]).toBe('Home');
+      expect(onTextFound.mock.calls[1]![0].tagName).toBe('A');
+      expect(onTextFound.mock.calls[1]![1]).toBe('About');
+
+      observer.stop();
+    });
+
+    it('should not aggregate links whose labels are wrapped in inline elements', () => {
+      root.innerHTML =
+        '<nav><a href="/a"><span>Home</span></a><a href="/b"><span>About</span></a></nav>';
+      const { observer, onTextFound } = createObserver(root);
+      observer.start();
+
+      expect(onTextFound).toHaveBeenCalledTimes(2);
+      expect(onTextFound.mock.calls[0]![0].tagName).toBe('SPAN');
+      expect(onTextFound.mock.calls[0]![1]).toBe('Home');
+      expect(onTextFound.mock.calls[1]![0].tagName).toBe('SPAN');
+      expect(onTextFound.mock.calls[1]![1]).toBe('About');
+
+      observer.stop();
+    });
+
+    it('should still aggregate a container with visible separator text between links', () => {
+      // Direct text " / " exists, so this is a formatted run and stays one unit.
+      // (Preserving the anchors here is Layer 2's job, not the aggregation gate's.)
+      root.innerHTML = '<nav><a href="/">Home</a> / <a href="/p">Products</a></nav>';
       const { observer, onTextFound } = createObserver(root);
       observer.start();
 
       expect(onTextFound).toHaveBeenCalledTimes(1);
       const [element, text] = onTextFound.mock.calls[0]!;
-      expect(element.tagName).toBe('P');
-      expect(text).toBe('<b>Hello</b><i>World</i>');
+      expect(element.tagName).toBe('NAV');
+      expect(text).toBe('<a href="/">Home</a> / <a href="/p">Products</a>');
 
       observer.stop();
     });

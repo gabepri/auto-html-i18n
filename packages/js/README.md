@@ -130,7 +130,7 @@ The `items` array passed to your callback contains objects with this structure:
 
 Each variable includes its auto-detected type (`'ignoreWord'`, `'number'`, `'date'`, `'url'`, `'email'`, `'symbol'`, `'comment'`, or `'markup'`) and optional metadata from `ignoreWords` config. This information is used for ICU MessageFormat evaluation and can help your backend generate better translations.
 
-Tags **not** in `allowedInlineTags` (e.g. an `<input>`, `<svg>`, or `<div>` that ends up inside a translatable run) are captured as opaque `'markup'` variables rather than left in the key. This keeps volatile attributes (random ids, gradient refs) out of the cache key so it stays stable, and the original markup is restored verbatim on output. Note the observer normally avoids handing such subtrees to the masker at all: an element is only aggregated when its **entire** descendant subtree is inline-allowed.
+Tags **not** in `allowedInlineTags` (e.g. an `<input>`, `<svg>`, or `<div>` that ends up inside a translatable run) are captured as opaque `'markup'` variables rather than left in the key. This keeps volatile attributes (random ids, gradient refs) out of the cache key so it stays stable, and the original markup is restored verbatim on output. Note the observer normally avoids handing such subtrees to the masker at all: an element is only aggregated when its **entire** descendant subtree is inline-allowed **and it has direct interleaved text of its own** (a bare list of inline elements — e.g. a nav menu or link list — is translated per-child instead, so each item keeps its own DOM node and cache key).
 
 ---
 
