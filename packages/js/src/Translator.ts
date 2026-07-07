@@ -369,6 +369,50 @@ export class Translator {
     this.pendingNodes.clear();
   }
 
+  /**
+   * Flush-time re-validation guard. The collection-time ignore check runs once,
+   * when a node is first seen; portalled/late-mounted content can settle under an
+   * ignore ancestor (or unmount entirely) in the debounce window before the batch
+   * is reported. For each item, look at the DOM node(s) we still track for it and
+   * keep the item only if at least one is live and not ignored. Drop items whose
+   * every tracked node is ignored or detached, forgetting their pending state so
+   * the same string can be collected again if it legitimately reappears later.
+   *
+   * `isIgnored` is injected (the shared ignore predicate) so the Translator stays
+   * free of ignore/root config.
+   */
+  filterReportable(
+    items: TranslationItem[],
+    isIgnored: (node: Node) => boolean
+  ): TranslationItem[] {
+    const reportable: TranslationItem[] = [];
+    for (const item of items) {
+      const nodes = this.pendingNodes.get(item.masked);
+      // No tracked nodes (already applied/cleared, or never tracked): nothing to
+      // re-validate against — preserve the pre-guard behavior and report it.
+      if (!nodes || nodes.size === 0) {
+        reportable.push(item);
+        continue;
+      }
+
+      let hasLive = false;
+      for (const node of nodes) {
+        if (node.element.isConnected && !isIgnored(node.element)) {
+          hasLive = true;
+          break;
+        }
+      }
+
+      if (hasLive) {
+        reportable.push(item);
+      } else {
+        this.pendingNodes.delete(item.masked);
+        this.store.resetIfPending(this.config.locale, item.masked);
+      }
+    }
+    return reportable;
+  }
+
   setLocale(locale: string): void {
     this.config.locale = locale;
   }

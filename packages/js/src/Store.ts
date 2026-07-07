@@ -30,6 +30,21 @@ export class Store {
     }
   }
 
+  /**
+   * Forget a not-yet-resolved key so the same string can be collected again
+   * later. Used by the flush guard when every tracked node for a key turned out
+   * to be ignored/detached: leaving it `pending`/`reported` would make a later,
+   * genuinely-visible occurrence short-circuit in the Translator and never get
+   * reported. Resolved entries are left untouched (their translation stands).
+   */
+  resetIfPending(locale: string, key: string): void {
+    const localeMap = this.getLocaleMap(locale);
+    const entry = localeMap?.get(key);
+    if (entry && entry.status !== 'resolved') {
+      localeMap!.delete(key);
+    }
+  }
+
   isPending(locale: string, key: string): boolean {
     const entry = this.get(locale, key);
     return entry?.status === 'pending';

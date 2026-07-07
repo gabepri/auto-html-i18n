@@ -5,6 +5,7 @@ import { Queue } from './Queue';
 import { Masker } from './Masker';
 import { Observer } from './Observer';
 import { Translator } from './Translator';
+import { isInsideIgnored } from './ignore';
 
 const DEFAULTS = {
   allowedInlineTags: ['a', 'b', 'i', 'u', 'strong', 'em', 'span', 'small', 'mark', 'del'],
@@ -271,8 +272,21 @@ export class I18nObserver {
   }
 
   private async handleFlush(items: TranslationItem[]): Promise<void> {
+    // Re-validate against the current DOM: drop items whose tracked nodes all
+    // became ignored or detached during the debounce window (portalled/late-
+    // mounted content). See Translator.filterReportable.
+    const reportable = this.translator.filterReportable(items, (node) =>
+      isInsideIgnored(node, {
+        rootElement: this.config.rootElement,
+        ignoreAttribute: this.config.ignoreAttribute,
+        ignoreSelectors: this.config.ignoreSelectors,
+      })
+    );
+
+    if (reportable.length === 0) return;
+
     try {
-      const result = await this.config.onMissingTranslation(items, this.currentLocale);
+      const result = await this.config.onMissingTranslation(reportable, this.currentLocale);
       if (result) {
         for (const [key, value] of Object.entries(result)) {
           this.store.set(this.currentLocale, key, value);
@@ -282,7 +296,7 @@ export class I18nObserver {
     } catch (err) {
       console.error('auto-html-i18n: translation callback error', err);
       // Mark items as reported to prevent infinite re-queuing
-      for (const item of items) {
+      for (const item of reportable) {
         this.store.markReported(this.currentLocale, item.masked);
       }
     }

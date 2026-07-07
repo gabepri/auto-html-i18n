@@ -1,4 +1,5 @@
 import type { ObserverConfig } from './types';
+import { isInsideIgnored } from './ignore';
 
 export class Observer {
   private config: ObserverConfig;
@@ -284,20 +285,6 @@ export class Observer {
   }
 
   private isInsideIgnored(node: Node): boolean {
-    let current: Node | null = node;
-    while (current && current !== this.config.rootElement) {
-      if (current instanceof Element) {
-        if (current.hasAttribute(this.config.ignoreAttribute)) {
-          return true;
-        }
-        for (const selector of this.config.ignoreSelectors) {
-          if (current.matches(selector)) {
-            return true;
-          }
-        }
-      }
-      current = current.parentNode;
-    }
-    return false;
+    return isInsideIgnored(node, this.config);
   }
 }

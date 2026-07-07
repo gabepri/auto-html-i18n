@@ -874,4 +874,146 @@ describe('Integration Tests', () => {
       i18n.stop();
     });
   });
+
+  describe('flush-time ignore guard (portal race)', () => {
+    // Was onMissingTranslation ever called with an item for `original`?
+    function reportedOriginals(onMissing: ReturnType<typeof vi.fn>): string[] {
+      return onMissing.mock.calls.flatMap(
+        (call) => (call[0] as TranslationItem[]).map((item) => item.original)
+      );
+    }
+
+    it('should NOT report text that moved under an ignore subtree before flush', async () => {
+      const onMissing = vi.fn().mockResolvedValue(null);
+      // Present at start: collected (visible, not ignored) by the initial scan and
+      // enqueued for the next debounced flush.
+      root.innerHTML = '<p>Portalled option</p>';
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        rootElement: root,
+      });
+      i18n.start();
+      const p = root.querySelector('p')!;
+      expect(p.hasAttribute('data-i18n-pending')).toBe(true);
+
+      // The framework settles it under an ignore wrapper before the debounce fires.
+      const wrapper = document.createElement('div');
+      wrapper.setAttribute('data-i18n-ignore', '');
+      root.appendChild(wrapper);
+      wrapper.appendChild(p);
+
+      await flushDebounce();
+
+      expect(reportedOriginals(onMissing)).not.toContain('Portalled option');
+
+      i18n.stop();
+    });
+
+    it('should NOT report an attribute that became ignored before flush', async () => {
+      const onMissing = vi.fn().mockResolvedValue(null);
+      root.innerHTML = '<input placeholder="Filter results" />';
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        rootElement: root,
+      });
+      i18n.start();
+      const input = root.querySelector('input')!;
+
+      // Ancestor gains the ignore attribute after the value was collected.
+      const wrapper = document.createElement('div');
+      wrapper.setAttribute('data-i18n-ignore', '');
+      root.appendChild(wrapper);
+      wrapper.appendChild(input);
+
+      await flushDebounce();
+
+      expect(reportedOriginals(onMissing)).not.toContain('Filter results');
+
+      i18n.stop();
+    });
+
+    it('should NOT report text detached from the document before flush', async () => {
+      const onMissing = vi.fn().mockResolvedValue(null);
+      root.innerHTML = '<p>Transient tooltip</p>';
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        rootElement: root,
+      });
+      i18n.start();
+      const p = root.querySelector('p')!;
+
+      // The portal unmounts (closes) before the debounce fires.
+      p.remove();
+
+      await flushDebounce();
+
+      expect(reportedOriginals(onMissing)).not.toContain('Transient tooltip');
+
+      i18n.stop();
+    });
+
+    it('should still report a normal, visible, non-ignored missing string', async () => {
+      const onMissing = vi.fn().mockResolvedValue({ 'Keep me visible': 'Mantenme visible' });
+      root.innerHTML = '<p>Keep me visible</p>';
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        rootElement: root,
+      });
+      i18n.start();
+      const p = root.querySelector('p')!;
+
+      await flushDebounce();
+
+      expect(reportedOriginals(onMissing)).toContain('Keep me visible');
+      expect(p.textContent).toBe('Mantenme visible');
+
+      i18n.stop();
+    });
+
+    it('should report a string on a later flush after it was dropped when ignored', async () => {
+      // Round 2 inserts a genuinely new node after start(), so its collection
+      // goes through the MutationObserver — unreliable to drive under fake timers
+      // (see the "dynamically added element attributes" test above). Use real
+      // timers and wall-clock waits, as that test does.
+      vi.useRealTimers();
+
+      const onMissing = vi.fn().mockResolvedValue(null);
+      root.innerHTML = '<p>Now you see me</p>';
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        rootElement: root,
+        debounceTime: 50,
+      });
+      i18n.start();
+
+      // Round 1: collected visible by the initial scan, then moved under ignore
+      // before the debounce fires → dropped by the flush guard.
+      const p1 = root.querySelector('p')!;
+      const wrapper = document.createElement('div');
+      wrapper.setAttribute('data-i18n-ignore', '');
+      root.appendChild(wrapper);
+      wrapper.appendChild(p1);
+
+      await new Promise((r) => setTimeout(r, 150));
+      expect(reportedOriginals(onMissing)).not.toContain('Now you see me');
+
+      // Round 2: the same string later appears as a genuinely visible, non-ignored
+      // node. The drop must not have left it stuck pending, or the Translator would
+      // short-circuit collection and it could never be reported again.
+      const p2 = document.createElement('p');
+      p2.textContent = 'Now you see me';
+      root.appendChild(p2);
+
+      await new Promise((r) => setTimeout(r, 200));
+      expect(reportedOriginals(onMissing)).toContain('Now you see me');
+
+      i18n.stop();
+      vi.useFakeTimers();
+    });
+  });
 });
