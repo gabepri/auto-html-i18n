@@ -43,7 +43,7 @@ jobs:
           php-version: ${{ matrix.php-version }}
           extensions: intl, mbstring
           coverage: none
-      - uses: ramsey/composer-install@v3
+      - uses: ramsey/composer-install@v4
         with:
           working-directory: packages/php
       - run: vendor/bin/phpunit
