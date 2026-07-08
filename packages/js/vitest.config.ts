@@ -10,10 +10,14 @@ export default defineConfig({
       include: ['src/**/*.ts'],
       exclude: ['src/index.ts', 'src/types.ts'],
       thresholds: {
-        branches: 80,
-        functions: 80,
-        lines: 80,
-        statements: 80,
+        // Coverage must not regress: autoUpdate ratchets these up to current on
+        // passing runs, and a drop below the recorded numbers fails the run.
+        // Never hand-lower these without the maintainer's sign-off.
+        autoUpdate: true,
+        branches: 92.75,
+        functions: 99.18,
+        lines: 97.8,
+        statements: 97.8,
       },
     },
   },

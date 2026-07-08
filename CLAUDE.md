@@ -20,7 +20,7 @@ When working on a package, `cd` into it first; commands below are scoped to the 
 npm run build          # TypeScript typecheck + Vite build (outputs dist/)
 npm run test           # Run tests once (Vitest + happy-dom)
 npm run test:watch     # Watch mode
-npm run test:coverage  # Tests with coverage (80% threshold: branches/functions/lines/statements)
+npm run test:coverage  # Tests with coverage (branches/functions/lines/statements)
 npm run lint           # ESLint
 npm run lint:fix       # ESLint auto-fix
 npm run typecheck      # TypeScript strict type checking
@@ -74,6 +74,8 @@ Don't fixture behavior that hinges on the ICU engines' terminal locale fallback:
 5. Before considering work complete, run the full test/lint/typecheck suite for the package you touched.
 
 Tests live in `tests/` within each package. Coverage excludes barrel/type files (`src/index.ts`, `src/types.ts` in JS).
+
+**Coverage must not regress.** A change should never *lower* the current coverage percentage. If a change legitimately needs to drop coverage (rare), stop and get the maintainer's explicit sign-off first rather than letting it slide.
 
 When changing Masker behavior, prefer adding a shared fixture (so both ports stay in sync) over a JS-only or PHP-only test.
 
