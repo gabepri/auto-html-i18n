@@ -63,6 +63,26 @@ describe('Translator', () => {
       expect(p.textContent).toBe('Hola');
     });
 
+    it('updates the existing text node in place instead of replacing it (preserves node identity)', () => {
+      // A leaf element's text node is often a framework's tracked vnode — e.g. the slot
+      // text of a Vue <RouterLink>. Replacing it via `element.textContent = ...` removes
+      // that node and creates a new one, orphaning the framework's reference; the crash
+      // surfaces when the framework later unmounts the node (menu flyouts / navigation).
+      // The apply must update the existing text node's data, not swap the node out.
+      const { translator, store } = createDeps();
+      store.set('es', 'Dashboard', 'Panel');
+
+      const a = document.createElement('a');
+      a.textContent = 'Dashboard';
+      root.appendChild(a);
+      const originalTextNode = a.firstChild;
+
+      translator.processText(a, 'Dashboard');
+
+      expect(a.textContent).toBe('Panel'); // translation applied
+      expect(a.firstChild).toBe(originalTextNode); // same text node instance, not replaced
+    });
+
     it('should unmask variables in cached translation', () => {
       const { translator, store } = createDeps();
       store.set('es', 'Hello {{0}}', 'Hola {{0}}');

@@ -391,7 +391,7 @@ export class Translator {
             // subtrees; strip them back to clean markup before writing.
             element.innerHTML = stripIgnoreSentinels(originalText);
           } else {
-            element.textContent = originalText;
+            this.setLeafText(element, originalText);
           }
         }
       }
@@ -519,13 +519,31 @@ export class Translator {
       // will echo back
       this.lastApplied.set(element, this.serializeAggregate(element));
     } else {
-      element.textContent = output;
+      this.setLeafText(element, output);
       this.lastApplied.set(element, output);
     }
 
     element.setAttribute(this.config.originalAttribute, originalText);
     element.removeAttribute(this.config.pendingAttribute);
     this.recordAppliedOutput(this.lastApplied.get(element)!, originalText);
+  }
+
+  /**
+   * Set a leaf element's visible text **without changing the identity of its
+   * text node**. Assigning `element.textContent` removes the existing child
+   * text node and creates a fresh one; when that node is one a framework tracks
+   * as a vnode (e.g. a Vue `<RouterLink>`'s slot text), orphaning it crashes the
+   * framework on its next unmount. So when the element already holds a single
+   * Text node we rewrite that node's data in place; otherwise (empty, or mixed
+   * children) we fall back to `textContent`.
+   */
+  private setLeafText(element: Element, text: string): void {
+    const first = element.firstChild;
+    if (first && first.nodeType === Node.TEXT_NODE && first === element.lastChild) {
+      (first as Text).data = text;
+    } else {
+      element.textContent = text;
+    }
   }
 
   /**
