@@ -8,7 +8,7 @@ import { Translator } from './Translator';
 import { isInsideIgnored, serializeAggregate, type IgnorePredicateConfig } from './ignore';
 
 const DEFAULTS = {
-  allowedInlineTags: ['a', 'b', 'i', 'u', 'strong', 'em', 'span', 'small', 'mark', 'del'],
+  allowedInlineTags: ['a', 'b', 'i', 'u', 'strong', 'em', 'span', 'small', 'mark', 'del', 'sup', 'sub'],
   translatableAttributes: ['title', 'placeholder', 'alt', 'aria-label'],
   ignoreSelectors: ['script', 'style', 'code'],
   ignoreWords: [] as string[],

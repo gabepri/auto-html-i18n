@@ -93,7 +93,7 @@ The `I18nObserver` constructor accepts a config object with the following proper
 | :--- | :--- | :--- | :--- |
 | `locale` | `string` | **Required** | The target language code (e.g., 'en', 'fr', 'ja'). |
 | `onMissingTranslation` | `function` | **Required** | Async function called when text is not in cache. Receives `(items[], locale)`. Return a Map/Object to apply translations, or `null` to take no action. If the callback throws, the affected elements remain in their pending state and the error is logged to the console. |
-| `allowedInlineTags` | `string[]` | `['a', 'b', 'i', 'u', 'strong', 'em', 'span', 'small', 'mark', 'del']` | HTML tags that are considered part of the sentence structure. |
+| `allowedInlineTags` | `string[]` | `['a', 'b', 'i', 'u', 'strong', 'em', 'span', 'small', 'mark', 'del', 'sup', 'sub']` | HTML tags that are considered part of the sentence structure. |
 | `translatableAttributes` | `string[]` | `['title', 'placeholder', 'alt', 'aria-label']` | HTML attributes to translate alongside text nodes. |
 | `ignoreSelectors` | `string[]` | `['script', 'style', 'code']` | CSS selectors to ignore. Content inside these elements will never be observed or translated. |
 | `ignoreWords` | `IgnoreWordEntry[]` | `[]` | Proper nouns or terms to treat as variables. Each entry can be a plain string (e.g., `'Google'`) or an object with metadata (e.g., `{ word: 'Mary', meta: { gender: 'female' } }`). Metadata is passed to ICU MessageFormat evaluation as `{N_key}` arguments. |
