@@ -1,0 +1,53 @@
+[
+  {
+    "name": "an ignored variable is restored verbatim (allowed tag)",
+    "translated": "Enviado por: {{0}}",
+    "variables": [
+      {
+        "value": "<span class=\"font-bold\" data-i18n-ignore>Kailey Booth</span>",
+        "type": "ignored"
+      }
+    ],
+    "locale": "es",
+    "expected": "Enviado por: <span class=\"font-bold\" data-i18n-ignore>Kailey Booth</span>"
+  },
+  {
+    "name": "an ignored variable bypasses sanitization (non-allowed tag restored verbatim)",
+    "translated": "User {{0}}",
+    "variables": [
+      {
+        "value": "<div class=\"card\"><input value=\"x\"></div>",
+        "type": "ignored"
+      }
+    ],
+    "locale": "en",
+    "expected": "User <div class=\"card\"><input value=\"x\"></div>"
+  },
+  {
+    "name": "ignored variables and translatable markers restore together",
+    "translated": "Por favor <b0>lea</b0> esto {{0}}",
+    "variables": [
+      {
+        "value": "<span data-i18n-ignore>Kailey</span>",
+        "type": "ignored"
+      }
+    ],
+    "tagAttributes": {
+      "b0": {}
+    },
+    "locale": "es",
+    "expected": "Por favor <b>lea</b> esto <span data-i18n-ignore>Kailey</span>"
+  },
+  {
+    "name": "an ignored variable is not bidi-isolated in RTL output",
+    "translated": "{{0}} \u05e9\u05dc\u05d5\u05dd",
+    "variables": [
+      {
+        "value": "<span data-i18n-ignore>Kailey</span>",
+        "type": "ignored"
+      }
+    ],
+    "locale": "he",
+    "expected": "<span data-i18n-ignore>Kailey</span> \u05e9\u05dc\u05d5\u05dd"
+  }
+]

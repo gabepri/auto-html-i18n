@@ -1,0 +1,78 @@
+[
+  {
+    "name": "an ignored subtree region is masked as one opaque ignored variable",
+    "input": "Submitted By: \ue000<span class=\"font-bold\" data-i18n-ignore>Kailey Booth</span>\ue001",
+    "expected": {
+      "masked": "Submitted By: {{0}}",
+      "variables": [
+        {
+          "value": "<span class=\"font-bold\" data-i18n-ignore>Kailey Booth</span>",
+          "type": "ignored"
+        }
+      ],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "a translatable inline tag stays a marker while the ignored region is a variable",
+    "input": "Please <b>read</b> this \ue000<span data-i18n-ignore>Kailey</span>\ue001",
+    "expected": {
+      "masked": "Please <b0>read</b0> this {{0}}",
+      "variables": [
+        {
+          "value": "<span data-i18n-ignore>Kailey</span>",
+          "type": "ignored"
+        }
+      ],
+      "tagAttributes": {
+        "b0": {}
+      },
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "multiple ignored regions become stable ordered variables",
+    "input": "From \ue000<span data-i18n-ignore>Alice</span>\ue001 to \ue000<span data-i18n-ignore>Bob</span>\ue001",
+    "expected": {
+      "masked": "From {{0}} to {{1}}",
+      "variables": [
+        {
+          "value": "<span data-i18n-ignore>Alice</span>",
+          "type": "ignored"
+        },
+        {
+          "value": "<span data-i18n-ignore>Bob</span>",
+          "type": "ignored"
+        }
+      ],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "a nested ignored subtree is one opaque slot (the masker does not descend)",
+    "input": "Owner: \ue000<span data-i18n-ignore>Name <b>Booth</b> Jr.</span>\ue001",
+    "expected": {
+      "masked": "Owner: {{0}}",
+      "variables": [
+        {
+          "value": "<span data-i18n-ignore>Name <b>Booth</b> Jr.</span>",
+          "type": "ignored"
+        }
+      ],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "an ignored region that leaves only punctuation still yields just a variable",
+    "input": ": \ue000<span data-i18n-ignore>Kailey Booth</span>\ue001",
+    "expected": {
+      "masked": ": {{0}}",
+      "variables": [
+        {
+          "value": "<span data-i18n-ignore>Kailey Booth</span>",
+          "type": "ignored"
+        }
+      ]
+    }
+  }
+]
