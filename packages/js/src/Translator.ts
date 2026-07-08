@@ -626,12 +626,18 @@ export class Translator {
     ignoredValues: string[]
   ): void {
     const doc = liveParent.ownerDocument;
-    // Reusable existing Text nodes, consumed in order.
+    // Reusable existing Text / Comment nodes, consumed in order. Comments are pooled
+    // so a comment the translation round-trips (masked as a variable) reuses the live
+    // node rather than creating a duplicate, and any live comment the translation
+    // doesn't account for (a framework anchor) is left untouched by arrangeChildren.
     const textPool: Text[] = [];
+    const commentPool: Comment[] = [];
     for (const child of liveParent.childNodes) {
       if (child.nodeType === Node.TEXT_NODE) textPool.push(child as Text);
+      else if (child.nodeType === Node.COMMENT_NODE) commentPool.push(child as Comment);
     }
     let textIdx = 0;
+    let commentIdx = 0;
 
     const ordered: Node[] = [];
 
@@ -649,7 +655,13 @@ export class Translator {
       }
 
       if (t.nodeType !== Node.ELEMENT_NODE) {
-        ordered.push(t); // comment or other node — carry the parsed node through
+        // The only non-text, non-element node an HTML fragment yields is a comment,
+        // and comments round-trip verbatim (masked as a variable), so a pooled live
+        // comment already holds the right data — reuse it in place rather than
+        // duplicating it, and never clobber its data (it may be a framework-owned
+        // anchor). A comment with no live counterpart — the framework dropped it, or
+        // the translation introduced one — is carried through as the parsed node.
+        ordered.push(commentPool[commentIdx++] ?? t);
         continue;
       }
 
@@ -705,7 +717,14 @@ export class Translator {
     }
     while (cursor) {
       const next = cursor.nextSibling;
-      parent.removeChild(cursor);
+      // Reclaim only stale Text nodes, which the engine manages. Never remove
+      // framework-owned structural nodes — anchor comments (<!--v-if-->, fragment
+      // markers) or elements a framework rendered. Those aren't in `ordered` (the
+      // translation only accounts for its own text + inline markers), and removing a
+      // node the framework still references severs its vdom<->DOM link, crashing its
+      // next patch/unmount (Vue: removeFragment / unmountComponent dereference null
+      // walking the orphaned sibling chain).
+      if (cursor.nodeType === Node.TEXT_NODE) parent.removeChild(cursor);
       cursor = next;
     }
   }

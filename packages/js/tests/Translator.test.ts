@@ -417,6 +417,29 @@ describe('Translator', () => {
       expect(p.innerHTML).toBe('<b>segundo</b> y <a href="/1">primero</a>');
     });
 
+    it('preserves a framework anchor comment interleaved in the aggregate (does not remove it)', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Click <a0>here</a0> to continue', 'Haga clic <a0>aqui</a0> para continuar');
+
+      const p = document.createElement('p');
+      p.innerHTML = 'Click <a href="/x">here</a> to continue';
+      // A framework (Vue) fragment / v-if anchor lives among the children. The reconcile
+      // must never remove it: a node the framework still references, once detached, breaks
+      // its vdom<->DOM linkage and crashes its next patch/unmount (Vue: removeFragment /
+      // unmountComponent dereference null walking the orphaned sibling chain).
+      const frameworkAnchor = document.createComment('v-if');
+      p.appendChild(frameworkAnchor);
+      root.appendChild(p);
+
+      translator.processText(p, 'Click <a href="/x">here</a> to continue');
+
+      // Translation still applied...
+      expect(p.querySelector('a')!.textContent).toBe('aqui');
+      // ...and the anchor comment survived — same instance, still parented to p.
+      expect(frameworkAnchor.parentNode).toBe(p);
+      expect(Array.from(p.childNodes)).toContain(frameworkAnchor);
+    });
+
     it('reuses the node but still strips its event-handler attributes', () => {
       const { translator, store } = createDeps();
       store.set('es', 'Click <a0>here</a0>', 'Clic <a0>aqui</a0>');
@@ -691,6 +714,24 @@ describe('Translator', () => {
       translator.processText(p, 'Hi <!--c--> <a href="/1">x</a>');
 
       expect(p.querySelector('a')).toBe(a);
+      expect(p.innerHTML).toBe('Hola <!--c--> <a href="/1">x</a>');
+    });
+
+    it('materializes a round-tripped comment when no live comment survives to reuse', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Hi {{0}} <a0>x</a0>', 'Hola {{0}} <a0>x</a0>');
+
+      const p = document.createElement('p');
+      p.innerHTML = 'Hi <!--c--> <a href="/1">x</a>';
+      root.appendChild(p);
+      // A framework dropped the comment node from the live DOM between collection
+      // and apply. The translation still carries it (masked as a variable), so the
+      // reconcile has no live comment to reuse and must carry the parsed one through.
+      p.childNodes[1]!.remove();
+      expect(p.innerHTML).toBe('Hi  <a href="/1">x</a>');
+
+      translator.processText(p, 'Hi <!--c--> <a href="/1">x</a>');
+
       expect(p.innerHTML).toBe('Hola <!--c--> <a href="/1">x</a>');
     });
 
