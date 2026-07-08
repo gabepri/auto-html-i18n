@@ -219,6 +219,24 @@ describe('Observer', () => {
 
       observer.stop();
     });
+
+    it('reports only the outermost of nested aggregation targets', () => {
+      // Both the <p> (direct text "Unit:" + inline <span>) and the nested <span>
+      // (direct text "value" + inline <b>) independently qualify as aggregation
+      // targets. The span's content already rides inside the <p>'s unit, so it must
+      // not be reported a second time on its own — only the outermost target of a
+      // nested chain should be aggregated. (Currently the inner span is reported too.)
+      root.innerHTML = '<p>Unit: <span>value <b>x</b></span></p>';
+      const { observer, onTextFound } = createObserver(root);
+      observer.start();
+
+      expect(onTextFound).toHaveBeenCalledTimes(1);
+      const [element, text] = onTextFound.mock.calls[0]!;
+      expect(element.tagName).toBe('P');
+      expect(text).toBe('Unit: <span>value <b>x</b></span>');
+
+      observer.stop();
+    });
   });
 
   describe('mutation observation', () => {

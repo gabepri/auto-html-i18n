@@ -239,12 +239,23 @@ export class Observer {
     out.push({ element: parent, text });
   }
 
-  /** Walk up from an element to find the nearest ancestor that has inline child elements */
+  /**
+   * Walk up from an element to find the OUTERMOST ancestor that aggregates as a
+   * formatted sentence. When aggregation targets nest (an element and one of its
+   * descendants both qualify), the descendant's content already rides inside the
+   * ancestor's unit as inline markers, so only the outermost should be reported —
+   * otherwise the inner content is collected twice.
+   */
   private findAggregationTarget(element: Element): Element | null {
     let current: Element | null = element;
+    let target: Element | null = null;
     while (current && current !== this.config.rootElement) {
       if (this.hasInlineChildElements(current)) {
-        return current;
+        // Qualifies, but a further ancestor may aggregate this one as inline
+        // content; keep climbing and remember the outermost qualifying element.
+        target = current;
+        current = current.parentElement;
+        continue;
       }
       // If current element is itself an inline tag, check its parent
       if (this.allowedInlineTagsSet.has(current.tagName.toLowerCase())) {
@@ -253,7 +264,7 @@ export class Observer {
       }
       break;
     }
-    return null;
+    return target;
   }
 
   private hasInlineChildElements(element: Element): boolean {
