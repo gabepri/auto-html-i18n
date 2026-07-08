@@ -306,8 +306,7 @@ export class Masker {
    * Substitution for an ignored-subtree variable. In `inline` mode it restores
    * the region's verbatim markup (sanitize-proof, like a markup variable). In
    * `placeholder` mode it emits a throwaway `<i18n-ignored data-k>` element the
-   * Translator swaps for the live ignored DOM node — so the node (and its
-   * listeners) is preserved rather than reconstructed.
+   * Translator swaps for the live ignored DOM node.
    */
   private ignoredSubstitution(
     variable: VariableInfo,

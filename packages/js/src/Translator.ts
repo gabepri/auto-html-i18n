@@ -4,9 +4,33 @@ import { Queue } from './Queue';
 import { Masker } from './Masker';
 import { stripIgnoreSentinels, collectTopLevelIgnored, isIgnoredElement, IGNORED_PLACEHOLDER_TAG, type IgnorePredicateConfig } from './ignore';
 
+/**
+ * NODE-PRESERVATION INVARIANT
+ *
+ * Every write this class makes to already-translated content is an in-place
+ * morph: it reuses the existing Text / Element / Comment nodes and rewrites their
+ * data, never `textContent =` / `innerHTML =` / `replaceChildren` on live,
+ * tracked content. The reason is framework safety. An aggregation target or leaf
+ * can hold nodes a framework (Vue, React, …) tracks as vnodes — a `<RouterLink>`
+ * slot's text, a component root, a `<!--v-if-->` anchor comment. Recreating such
+ * a node severs the framework's vdom↔DOM link; it doesn't fail immediately but
+ * dereferences null on the next patch or unmount (menu flyouts, route
+ * navigation), which is why swapping a node out crashes later, not now.
+ *
+ * So apply ({@link Translator.morphInto}/{@link Translator.reconcileChildren}),
+ * leaf text ({@link Translator.setLeafText}), ignored-node restoration, and
+ * revert ({@link Translator.morphOriginalInto}) all morph in place. The one
+ * sanctioned exception is {@link Translator.rebuildChildren}: when the translated
+ * shape genuinely can't map 1:1 onto the existing nodes (ICU branch selection, or
+ * a tag the translation added/dropped) there is no stable node to preserve, so it
+ * replaces wholesale and accepts the identity loss.
+ *
+ * Comments below take this as given and note only the local mechanism.
+ */
+
 // ICU plural/select constructs pick one branch at evaluation time, so the masked
-// markers (which appear in every branch) won't line up with the evaluated output.
-// When we detect one, skip the node-preserving morph and do a plain replace.
+// markers (in every branch) can't line up with the evaluated output — the morph
+// isn't reconcilable and falls back to a wholesale rebuild (see invariant above).
 const ICU_PATTERN = /\{\s*\w+\s*,\s*(?:plural|select|selectordinal)\b/;
 
 export interface TranslatorConfig {
@@ -387,11 +411,9 @@ export class Translator {
         const current = this.currentContent(element, isHtml);
         if (lastKnown === undefined || current === lastKnown) {
           if (isHtml) {
-            // Symmetric to the apply path: morph the original back onto the
-            // element so a framework-tracked child (a router-link, a component
-            // root) keeps its live node rather than being recreated by
-            // `innerHTML =` and orphaned. The stored original is the canonical
-            // sentinel-bracketed form, so re-masking it reproduces the same
+            // Symmetric to the apply path: morph the original back on in place
+            // (node-preservation invariant). The stored original is the canonical
+            // sentinel-bracketed form, so re-masking reproduces the same
             // markers/variables morphInto used on apply.
             this.morphOriginalInto(element, originalText);
           } else {
@@ -533,13 +555,9 @@ export class Translator {
   }
 
   /**
-   * Set a leaf element's visible text **without changing the identity of its
-   * text node**. Assigning `element.textContent` removes the existing child
-   * text node and creates a fresh one; when that node is one a framework tracks
-   * as a vnode (e.g. a Vue `<RouterLink>`'s slot text), orphaning it crashes the
-   * framework on its next unmount. So when the element already holds a single
-   * Text node we rewrite that node's data in place; otherwise (empty, or mixed
-   * children) we fall back to `textContent`.
+   * Set a leaf element's visible text in place (node-preservation invariant):
+   * when it already holds a single Text node, rewrite that node's data;
+   * otherwise (empty, or mixed children) fall back to `textContent`.
    */
   private setLeafText(element: Element, text: string): void {
     const first = element.firstChild;
@@ -551,28 +569,10 @@ export class Translator {
   }
 
   /**
-   * Write translated HTML into `element` **without destroying existing child-node
-   * identity**. An aggregation target can be a container that also holds
-   * framework-managed children (a Vue/React router-link, a component root) *and*
-   * its own direct text; recreating its children via `innerHTML =` /
-   * `replaceChildren` severs those nodes from the framework's virtual DOM, which
-   * then dereferences null on its next patch and crashes. So the common case
-   * reconciles the translated output onto the ORIGINAL nodes in place
-   * ({@link reconcileChildren}): each inline `<tagN>` marker and each ignored slot
-   * maps back to the live node that already exists, which is reused (not
-   * replaced), and only the surrounding/inner Text nodes' data is rewritten — text
-   * is never merged across an element boundary.
-   *
-   * Only when the output genuinely can't be matched 1:1 against the existing
-   * children — ICU branch selection, or a tag the translation added/dropped —
-   * does it fall back to {@link rebuildChildren}, a wholesale replace that keeps
-   * the written output correct but **loses inline child-node identity**.
-   */
-  /**
-   * Restore an aggregated element's original markup **in place** (revert path).
+   * Restore an aggregated element's original markup on the revert path.
    * Re-masks the stored canonical original to recover the same markers/variables
    * the apply-side morph used, then drives {@link morphInto} with the original as
-   * the target output so live child nodes are reused rather than recreated.
+   * the target output.
    */
   private morphOriginalInto(element: Element, originalText: string): void {
     const maskResult = this.masker.mask(originalText);
@@ -592,6 +592,15 @@ export class Translator {
     this.morphInto(element, stripIgnoreSentinels(originalText), maskResult.masked, maskResult.variables, placeholderOutput);
   }
 
+  /**
+   * Write translated HTML into `element` (node-preservation invariant). The common
+   * case reconciles the output onto the existing nodes in place
+   * ({@link reconcileChildren}): each inline `<tagN>` marker and each ignored slot
+   * maps back to its live node, and only surrounding/inner Text data is rewritten —
+   * text is never merged across an element boundary. When the output can't be
+   * matched 1:1 (ICU branch selection, or a tag the translation added/dropped) it
+   * falls back to {@link rebuildChildren}.
+   */
   private morphInto(
     element: Element,
     output: string,
@@ -648,14 +657,13 @@ export class Translator {
   }
 
   /**
-   * Transform `liveParent`'s children into `templateNodes` **in place**, reusing
-   * existing nodes instead of recreating them:
+   * Transform `liveParent`'s children into `templateNodes` in place (node-
+   * preservation invariant), reusing existing nodes:
    *  - a Text node updates the next existing Text node's `.data` (drawn from a
-   *    per-parent pool, in order) rather than replacing it — so a framework that
-   *    owns that text node keeps its reference, and adjacent text never fuses
-   *    across an element boundary;
+   *    per-parent pool, in order); adjacent text never fuses across an element
+   *    boundary;
    *  - an inline `<tagN>` marker element reuses the live node the marker points to
-   *    (preserving its listeners / framework bindings) and recurses into it;
+   *    and recurses into it;
    *  - an `<i18n-ignored>` placeholder reuses the live ignored node in place;
    *  - only a tag with no live counterpart (introduced by the translation) or a
    *    dropped ignored node is materialized fresh.
@@ -673,9 +681,9 @@ export class Translator {
   ): void {
     const doc = liveParent.ownerDocument;
     // Reusable existing Text / Comment nodes, consumed in order. Comments are pooled
-    // so a comment the translation round-trips (masked as a variable) reuses the live
-    // node rather than creating a duplicate, and any live comment the translation
-    // doesn't account for (a framework anchor) is left untouched by arrangeChildren.
+    // so a round-tripped comment (masked as a variable) reuses the live node rather
+    // than duplicating it; any live comment the translation doesn't account for is
+    // left untouched by arrangeChildren.
     const textPool: Text[] = [];
     const commentPool: Comment[] = [];
     for (const child of liveParent.childNodes) {
@@ -703,10 +711,9 @@ export class Translator {
       if (t.nodeType !== Node.ELEMENT_NODE) {
         // The only non-text, non-element node an HTML fragment yields is a comment,
         // and comments round-trip verbatim (masked as a variable), so a pooled live
-        // comment already holds the right data — reuse it in place rather than
-        // duplicating it, and never clobber its data (it may be a framework-owned
-        // anchor). A comment with no live counterpart — the framework dropped it, or
-        // the translation introduced one — is carried through as the parsed node.
+        // comment already holds the right data — reuse it and never clobber its data
+        // (it may be a framework-owned anchor). A comment with no live counterpart is
+        // carried through as the parsed node.
         ordered.push(commentPool[commentIdx++] ?? t);
         continue;
       }
@@ -717,9 +724,9 @@ export class Translator {
         const k = parseInt(te.getAttribute('data-k') ?? '', 10);
         const liveNode = Number.isNaN(k) ? undefined : liveIgnored[k];
         if (liveNode) {
-          ordered.push(liveNode); // preserve the live ignored node (and its bindings)
+          ordered.push(liveNode);
         } else {
-          // Framework dropped it — reconstruct from the verbatim masked markup.
+          // No live counterpart survived — reconstruct from the verbatim masked markup.
           const rebuilt = this.parseFragment(ignoredValues[k] ?? '');
           for (const rn of Array.from(rebuilt.childNodes)) ordered.push(rn);
         }
@@ -763,24 +770,20 @@ export class Translator {
     }
     while (cursor) {
       const next = cursor.nextSibling;
-      // Reclaim only stale Text nodes, which the engine manages. Never remove
-      // framework-owned structural nodes — anchor comments (<!--v-if-->, fragment
-      // markers) or elements a framework rendered. Those aren't in `ordered` (the
-      // translation only accounts for its own text + inline markers), and removing a
-      // node the framework still references severs its vdom<->DOM link, crashing its
-      // next patch/unmount (Vue: removeFragment / unmountComponent dereference null
-      // walking the orphaned sibling chain).
+      // Reclaim only stale Text nodes. Leftover structural nodes — anchor comments
+      // (<!--v-if-->, fragment markers) or framework-rendered elements — aren't in
+      // `ordered` (the translation accounts only for its own text + inline markers);
+      // removing them would violate the node-preservation invariant, so leave them.
       if (cursor.nodeType === Node.TEXT_NODE) parent.removeChild(cursor);
       cursor = next;
     }
   }
 
   /**
-   * Wholesale-replace `element`'s children with `fragment` — the documented
-   * fallback for output that can't be reconciled 1:1 (ICU branch selection or a
-   * tag-set change). This **loses inline child-node identity** (and any framework
-   * bindings on those nodes), so it runs only when a faithful reconcile is
-   * impossible; the written output is still correct. Live ignored nodes, when
+   * The sanctioned exception to the node-preservation invariant: wholesale-replace
+   * `element`'s children with `fragment`. Runs only when a 1:1 reconcile is
+   * impossible (ICU branch selection or a tag-set change), so there is no stable
+   * node to preserve; the written output is still correct. Live ignored nodes, when
    * present, are spliced back in first so at least those keep their identity.
    */
   private rebuildChildren(
@@ -801,10 +804,9 @@ export class Translator {
 
   /**
    * Replaces each `<i18n-ignored data-k>` placeholder in `fragment` with the
-   * corresponding live ignored DOM node from `element` (preserving its listeners
-   * / framework bindings). When no live node survives — the framework re-rendered
-   * or dropped it — reconstruct the subtree from the masked variable's verbatim
-   * markup so the output is still correct.
+   * corresponding live ignored DOM node from `element` (node-preservation
+   * invariant). When no live node survives, reconstruct the subtree from the
+   * masked variable's verbatim markup so the output is still correct.
    */
   private restoreIgnoredNodes(element: Element, fragment: DocumentFragment, variables: VariableInfo[]): void {
     const live = collectTopLevelIgnored(element, this.ignorePredicate);

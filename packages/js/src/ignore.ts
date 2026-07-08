@@ -93,11 +93,9 @@ export function stripIgnoreSentinels(html: string): string {
 
 /**
  * Collects the topmost ignored descendant elements of `element`, in document
- * order — the live DOM nodes an aggregated apply must splice back in place of the
- * opaque variables (preserving their event listeners / framework bindings rather
- * than reconstructing them from serialized HTML). Does not descend into an
- * ignored subtree, matching how {@link serializeAggregate} brackets only the
- * outermost boundary.
+ * order — the live DOM nodes an aggregated apply splices back in place of the
+ * opaque variables. Does not descend into an ignored subtree, matching how
+ * {@link serializeAggregate} brackets only the outermost boundary.
  */
 export function collectTopLevelIgnored(element: Element, config: IgnorePredicateConfig): Element[] {
   const out: Element[] = [];
