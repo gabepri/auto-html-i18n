@@ -3,7 +3,10 @@ import { Translator, TranslatorConfig } from '../src/Translator';
 import { Store } from '../src/Store';
 import { Queue } from '../src/Queue';
 import { Masker } from '../src/Masker';
+import { serializeAggregate } from '../src/ignore';
 import type { TranslationItem } from '../src/types';
+
+const IGNORE_PREDICATE = { ignoreAttribute: 'data-i18n-ignore', ignoreSelectors: [] };
 
 function createDeps(overrides: {
   storeOverrides?: Record<string, unknown>;
@@ -480,6 +483,263 @@ describe('Translator', () => {
       translator.processText(p, '<b>5</b> sheep');
 
       expect(p.innerHTML).toBe('<b>5 ovejas</b>');
+    });
+  });
+
+  describe('inline HTML apply - non-destructive to child-node identity (framework safety)', () => {
+    // An aggregation target can be a container that ALSO holds framework-managed
+    // element children (a Vue/React router-link, a component root) plus its own
+    // direct text. Recreating its children on apply (innerHTML/replaceChildren)
+    // severs those nodes from the framework's vdom, which then dereferences null on
+    // its next patch and crashes. The apply must reconcile in place instead.
+
+    it('preserves the direct text node AND the child element node (with its listener) on apply', () => {
+      const { translator, store } = createDeps();
+      // Mirrors the reported case: direct text interleaved with a framework-owned link.
+      store.set('es', 'Completado la semana pasada <a0>Reto</a0>', 'Completed last week <a0>Challenge</a0>');
+
+      const div = document.createElement('div');
+      div.innerHTML = 'Completado la semana pasada <a href="/x">Reto</a>';
+      root.appendChild(div);
+
+      const directText = div.firstChild!;        // the framework-owned direct text node
+      const anchor = div.querySelector('a')!;     // the framework-owned link element
+      const anchorText = anchor.firstChild!;      // the link's inner text node
+      let clicked = 0;
+      anchor.addEventListener('click', () => { clicked++; });
+
+      translator.processText(div, 'Completado la semana pasada <a href="/x">Reto</a>');
+
+      // Element identity + listener survive (already true before the fix)...
+      expect(div.querySelector('a')).toBe(anchor);
+      anchor.dispatchEvent(new Event('click'));
+      expect(clicked).toBe(1);
+      // ...and so do the surrounding/inner TEXT nodes (the regression: old apply
+      // recreated these, orphaning the framework's references to them).
+      expect(div.firstChild).toBe(directText);
+      expect(directText.textContent).toBe('Completed last week ');
+      expect(anchor.firstChild).toBe(anchorText);
+      expect(anchorText.textContent).toBe('Challenge');
+      expect(div.innerHTML).toBe('Completed last week <a href="/x">Challenge</a>');
+    });
+
+    it('does not fuse adjacent text into a reused element', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Foo <a0>Bar</a0> Baz', 'Uno <a0>Dos</a0> Tres');
+
+      const p = document.createElement('p');
+      p.innerHTML = 'Foo <a href="/x">Bar</a> Baz';
+      root.appendChild(p);
+      const anchor = p.querySelector('a')!;
+
+      translator.processText(p, 'Foo <a href="/x">Bar</a> Baz');
+
+      // <a> reused, and its siblings remain distinct Text nodes (no "…Dos" fusion).
+      expect(p.querySelector('a')).toBe(anchor);
+      expect(anchor.previousSibling!.nodeType).toBe(Node.TEXT_NODE);
+      expect(anchor.nextSibling!.nodeType).toBe(Node.TEXT_NODE);
+      expect(anchor.previousSibling!.textContent).toBe('Uno ');
+      expect(anchor.nextSibling!.textContent).toBe(' Tres');
+      expect(anchor.childNodes.length).toBe(1);
+      expect(anchor.textContent).toBe('Dos');
+      expect(p.innerHTML).toBe('Uno <a href="/x">Dos</a> Tres');
+    });
+
+    it('is idempotent: re-applying the same translation neither duplicates nor destroys nodes', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Completado <a0>Reto</a0>', 'Done <a0>Task</a0>');
+
+      const div = document.createElement('div');
+      div.innerHTML = 'Completado <a href="/x">Reto</a>';
+      root.appendChild(div);
+
+      translator.processText(div, 'Completado <a href="/x">Reto</a>');
+      const anchor = div.querySelector('a')!;
+      const directText = div.firstChild!;
+      const childCount = div.childNodes.length;
+
+      // A second apply (e.g. a re-fired MutationObserver / retranslate) must be a no-op.
+      translator.retranslateAll();
+
+      expect(div.childNodes.length).toBe(childCount);
+      expect(div.querySelector('a')).toBe(anchor);
+      expect(div.firstChild).toBe(directText);
+      expect(div.innerHTML).toBe('Done <a href="/x">Task</a>');
+    });
+
+    it('preserves the live DOM node of an ignored child across apply', () => {
+      const { translator, store } = createDeps({
+        configOverrides: {
+          serializeAggregate: (el) => serializeAggregate(el, IGNORE_PREDICATE),
+          ignorePredicate: IGNORE_PREDICATE,
+        },
+      });
+      // The ignored <span>'s user data is masked as one opaque {{0}} variable.
+      store.set('es', 'Hola {{0}} mundo', 'Hello {{0}} world');
+
+      const div = document.createElement('div');
+      div.innerHTML = 'Hola <span data-i18n-ignore>Jdoe#42</span> mundo';
+      root.appendChild(div);
+      const ignored = div.querySelector('[data-i18n-ignore]')!;
+      const ignoredText = ignored.firstChild!;
+
+      translator.processText(div, serializeAggregate(div, IGNORE_PREDICATE));
+
+      // The ignored subtree keeps its exact live node (and inner text), not a rebuild.
+      expect(div.querySelector('[data-i18n-ignore]')).toBe(ignored);
+      expect(ignored.firstChild).toBe(ignoredText);
+      expect(ignored.textContent).toBe('Jdoe#42');
+      expect(div.textContent).toBe('Hello Jdoe#42 world');
+    });
+
+    it('still maps <spanN> markers to reused children (structural-marker regression)', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Total <span0>{{0}}</span0> items', 'Total de <span0>{{0}}</span0> artículos');
+
+      const p = document.createElement('p');
+      p.innerHTML = 'Total <span class="count">5</span> items';
+      root.appendChild(p);
+      const span = p.querySelector('span')!;
+
+      translator.processText(p, 'Total <span class="count">5</span> items');
+
+      expect(p.querySelector('span')).toBe(span);           // reused, not rebuilt
+      expect(span.getAttribute('class')).toBe('count');
+      expect(span.textContent).toBe('5');
+      expect(p.innerHTML).toBe('Total de <span class="count">5</span> artículos');
+    });
+
+    it('leaf text element still translates via in-place text update', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Hello', 'Hola');
+
+      const p = document.createElement('p');
+      p.textContent = 'Hello';
+      root.appendChild(p);
+
+      translator.processText(p, 'Hello');
+
+      expect(p.childNodes.length).toBe(1);
+      expect(p.firstChild!.nodeType).toBe(Node.TEXT_NODE);
+      expect(p.textContent).toBe('Hola');
+    });
+
+    it('falls back to a documented rebuild (no silent corruption) when the tag set changes', () => {
+      const { translator, store } = createDeps();
+      // Translation introduces a <b> the source never had — not reconcilable 1:1.
+      store.set('es', 'See <a0>docs</a0>', 'Ver <a0>docs</a0> <b>ahora</b>');
+
+      const p = document.createElement('p');
+      p.innerHTML = 'See <a href="/d">docs</a>';
+      root.appendChild(p);
+      const anchor = p.querySelector('a')!;
+
+      translator.processText(p, 'See <a href="/d">docs</a>');
+
+      // Output is still correct (the contract of the fallback); the <a> identity is
+      // knowingly lost — this is the documented rebuild path, not a reconcile.
+      expect(p.innerHTML).toBe('Ver <a href="/d">docs</a> <b>ahora</b>');
+      expect(p.querySelector('a')).not.toBe(anchor);
+    });
+
+    it('materializes a text node the translation introduces between reused elements', () => {
+      const { translator, store } = createDeps();
+      store.set('es', '<a0>x</a0><b0>y</b0>', '<a0>x</a0> y <b0>z</b0>');
+
+      const p = document.createElement('p');
+      p.innerHTML = '<a href="/1">x</a><b>y</b>';
+      root.appendChild(p);
+      const a = p.querySelector('a')!;
+      const b = p.querySelector('b')!;
+
+      translator.processText(p, '<a href="/1">x</a><b>y</b>');
+
+      expect(p.querySelector('a')).toBe(a);          // reused
+      expect(p.querySelector('b')).toBe(b);          // reused
+      expect(p.innerHTML).toBe('<a href="/1">x</a> y <b>z</b>');
+    });
+
+    it('removes now-stale nodes when the translation drops content between elements', () => {
+      const { translator, store } = createDeps();
+      store.set('es', '<a0>x</a0> <b0>y</b0>', '<a0>x</a0><b0>y</b0>');
+
+      const p = document.createElement('p');
+      p.innerHTML = '<a href="/1">x</a> <b>y</b>';
+      root.appendChild(p);
+      const a = p.querySelector('a')!;
+      const b = p.querySelector('b')!;
+
+      translator.processText(p, '<a href="/1">x</a> <b>y</b>');
+
+      // The whitespace text node between them is gone; the elements are reused.
+      expect(p.querySelector('a')).toBe(a);
+      expect(p.querySelector('b')).toBe(b);
+      expect(p.childNodes.length).toBe(2);
+      expect(p.innerHTML).toBe('<a href="/1">x</a><b>y</b>');
+    });
+
+    it('carries a comment node through the reconcile', () => {
+      const { translator, store } = createDeps();
+      // The comment masks to an opaque variable and round-trips verbatim.
+      store.set('es', 'Hi {{0}} <a0>x</a0>', 'Hola {{0}} <a0>x</a0>');
+
+      const p = document.createElement('p');
+      p.innerHTML = 'Hi <!--c--> <a href="/1">x</a>';
+      root.appendChild(p);
+      const a = p.querySelector('a')!;
+
+      translator.processText(p, 'Hi <!--c--> <a href="/1">x</a>');
+
+      expect(p.querySelector('a')).toBe(a);
+      expect(p.innerHTML).toBe('Hola <!--c--> <a href="/1">x</a>');
+    });
+
+    it('reconstructs an ignored subtree from masked markup when its live node vanished', () => {
+      const { translator, store } = createDeps({
+        configOverrides: {
+          serializeAggregate: (el) => serializeAggregate(el, IGNORE_PREDICATE),
+          ignorePredicate: IGNORE_PREDICATE,
+        },
+      });
+      store.set('es', 'Hola {{0}} mundo', 'Hello {{0}} world');
+
+      const div = document.createElement('div');
+      div.innerHTML = 'Hola <span data-i18n-ignore>secret</span> mundo';
+      root.appendChild(div);
+
+      // Capture the aggregated form, then drop the ignored node before apply so no
+      // live node survives — the reconcile must rebuild it from the masked markup.
+      const aggregated = serializeAggregate(div, IGNORE_PREDICATE);
+      div.querySelector('[data-i18n-ignore]')!.remove();
+
+      translator.processText(div, aggregated);
+
+      const rebuilt = div.querySelector('[data-i18n-ignore]');
+      expect(rebuilt).not.toBeNull();
+      expect(rebuilt!.textContent).toBe('secret');
+      expect(div.textContent).toBe('Hello secret world');
+    });
+
+    it('keeps the ignored live node even on the rebuild fallback (tag-set change)', () => {
+      const { translator, store } = createDeps({
+        configOverrides: {
+          serializeAggregate: (el) => serializeAggregate(el, IGNORE_PREDICATE),
+          ignorePredicate: IGNORE_PREDICATE,
+        },
+      });
+      // Translation adds a <b> the source lacked → not reconcilable → rebuild path,
+      // which still splices the live ignored node back in via restoreIgnoredNodes.
+      store.set('es', 'Hola {{0}} <a0>link</a0>', 'Hola {{0}} <a0>link</a0> <b>extra</b>');
+
+      const div = document.createElement('div');
+      div.innerHTML = 'Hola <span data-i18n-ignore>secret</span> <a href="/x">link</a>';
+      root.appendChild(div);
+      const ignored = div.querySelector('[data-i18n-ignore]')!;
+
+      translator.processText(div, serializeAggregate(div, IGNORE_PREDICATE));
+
+      expect(div.querySelector('[data-i18n-ignore]')).toBe(ignored); // live node preserved
+      expect(div.querySelector('b')!.textContent).toBe('extra');     // fallback output correct
     });
   });
 

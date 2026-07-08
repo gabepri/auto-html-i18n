@@ -489,14 +489,22 @@ export class Translator {
   }
 
   /**
-   * Write translated HTML into `element` while preserving the original child
-   * element instances (and their event listeners / framework bindings) wherever
-   * possible. Each inline tag in the source was masked to a `<tagN>` marker; we
-   * reuse the live node that marker points to and graft the translated content
-   * into it, instead of recreating everything via `innerHTML =`. Falls back to a
-   * plain innerHTML assignment whenever the markers can't be matched 1:1 (ICU
-   * branch selection, or tags the translation added/dropped), so the written
-   * output is always correct — node reuse is a best-effort enhancement over it.
+   * Write translated HTML into `element` **without destroying existing child-node
+   * identity**. An aggregation target can be a container that also holds
+   * framework-managed children (a Vue/React router-link, a component root) *and*
+   * its own direct text; recreating its children via `innerHTML =` /
+   * `replaceChildren` severs those nodes from the framework's virtual DOM, which
+   * then dereferences null on its next patch and crashes. So the common case
+   * reconciles the translated output onto the ORIGINAL nodes in place
+   * ({@link reconcileChildren}): each inline `<tagN>` marker and each ignored slot
+   * maps back to the live node that already exists, which is reused (not
+   * replaced), and only the surrounding/inner Text nodes' data is rewritten — text
+   * is never merged across an element boundary.
+   *
+   * Only when the output genuinely can't be matched 1:1 against the existing
+   * children — ICU branch selection, or a tag the translation added/dropped —
+   * does it fall back to {@link rebuildChildren}, a wholesale replace that keeps
+   * the written output correct but **loses inline child-node identity**.
    */
   private morphInto(
     element: Element,
@@ -506,17 +514,12 @@ export class Translator {
     placeholderOutput?: string
   ): void {
     const hasIgnored = placeholderOutput !== undefined;
+    const fragment = this.parseFragment(hasIgnored ? placeholderOutput : output);
 
+    // ICU branch selection picks one arm at eval time, so the markers (present in
+    // every arm) can't be mapped 1:1 to the evaluated output — not reconcilable.
     if (ICU_PATTERN.test(maskedValue)) {
-      if (hasIgnored) {
-        // ICU branch selection breaks marker mapping, but we can still preserve
-        // the ignored live nodes: parse the placeholder rendering and splice.
-        const fragment = this.parseFragment(placeholderOutput);
-        this.restoreIgnoredNodes(element, fragment, variables);
-        element.replaceChildren(...Array.from(fragment.childNodes));
-      } else {
-        element.innerHTML = output;
-      }
+      this.rebuildChildren(element, fragment, variables, hasIgnored);
       return;
     }
 
@@ -529,55 +532,159 @@ export class Translator {
       markers.push(`${match[1]}${match[2]}`);
     }
 
-    // Ignored subtrees ride through as opaque `<i18n-ignored>` placeholders in
-    // the morph rendering; keep them out of marker matching (they aren't tags
-    // the Masker numbered) and swap them for live nodes afterward.
-    const fragment = this.parseFragment(hasIgnored ? placeholderOutput : output);
+    // Ignored subtrees ride through as opaque `<i18n-ignored>` placeholders; keep
+    // them out of marker matching (they aren't tags the Masker numbered) — the
+    // reconcile swaps them for live nodes by their own index.
     const outElements = Array.from(fragment.querySelectorAll('*')).filter(
       (e) => e.tagName.toLowerCase() !== IGNORED_PLACEHOLDER_TAG
     );
 
     // unmask preserves tree shape, so the k-th output element lines up with the
-    // k-th opening marker. If they don't, we can't map reliably — bail to a plain
-    // replace (correct output, just without inline-node reuse), still preserving
-    // the ignored live nodes.
+    // k-th opening marker. If the counts don't match, the shape changed and we
+    // can't map reliably — fall back to a wholesale rebuild (correct output, but
+    // it loses child-node identity).
     if (outElements.length !== markers.length) {
-      if (hasIgnored) {
-        this.restoreIgnoredNodes(element, fragment, variables);
-        element.replaceChildren(...Array.from(fragment.childNodes));
-      } else {
-        element.innerHTML = output;
-      }
+      this.rebuildChildren(element, fragment, variables, hasIgnored);
       return;
     }
 
-    const markerToNode = this.buildMarkerToNode(element);
-
+    // Zip fragment elements to their marker (document order) so the reconcile can
+    // resolve each translated element to the live node that marker points to.
+    const elementMarker = new Map<Element, string>();
     for (let k = 0; k < outElements.length; k++) {
-      const outElement = outElements[k]!;
-      const marker = markers[k]!;
-      const original = markerToNode.get(marker);
+      elementMarker.set(outElements[k]!, markers[k]!);
+    }
+    const markerToNode = this.buildMarkerToNode(element);
+    const liveIgnored = hasIgnored ? collectTopLevelIgnored(element, this.ignorePredicate) : [];
+    const ignoredValues = hasIgnored ? variables.filter((v) => v.type === 'ignored').map((v) => v.value) : [];
 
-      if (original && original.tagName === outElement.tagName) {
-        // Reuse the live node: replace its content with the translated children
-        // and strip inline event-handler attributes, matching the sanitization
-        // the string path applies through unmask.
-        while (original.firstChild) original.removeChild(original.firstChild);
-        while (outElement.firstChild) original.appendChild(outElement.firstChild);
-        for (const name of original.getAttributeNames()) {
-          if (name.toLowerCase().startsWith('on')) original.removeAttribute(name);
+    this.reconcileChildren(element, fragment.childNodes, elementMarker, markerToNode, liveIgnored, ignoredValues);
+  }
+
+  /**
+   * Transform `liveParent`'s children into `templateNodes` **in place**, reusing
+   * existing nodes instead of recreating them:
+   *  - a Text node updates the next existing Text node's `.data` (drawn from a
+   *    per-parent pool, in order) rather than replacing it — so a framework that
+   *    owns that text node keeps its reference, and adjacent text never fuses
+   *    across an element boundary;
+   *  - an inline `<tagN>` marker element reuses the live node the marker points to
+   *    (preserving its listeners / framework bindings) and recurses into it;
+   *  - an `<i18n-ignored>` placeholder reuses the live ignored node in place;
+   *  - only a tag with no live counterpart (introduced by the translation) or a
+   *    dropped ignored node is materialized fresh.
+   * Then {@link arrangeChildren} orders `liveParent`'s children to match, moving
+   * (never rebuilding) reused nodes and removing only genuinely stale ones. Idempotent:
+   * re-running on already-applied content resolves to the same nodes and is a no-op.
+   */
+  private reconcileChildren(
+    liveParent: Element,
+    templateNodes: ArrayLike<Node>,
+    elementMarker: Map<Element, string>,
+    markerToNode: Map<string, Element>,
+    liveIgnored: Element[],
+    ignoredValues: string[]
+  ): void {
+    const doc = liveParent.ownerDocument;
+    // Reusable existing Text nodes, consumed in order.
+    const textPool: Text[] = [];
+    for (const child of liveParent.childNodes) {
+      if (child.nodeType === Node.TEXT_NODE) textPool.push(child as Text);
+    }
+    let textIdx = 0;
+
+    const ordered: Node[] = [];
+
+    for (const t of Array.from(templateNodes)) {
+      if (t.nodeType === Node.TEXT_NODE) {
+        const data = (t as Text).data;
+        const reused = textPool[textIdx++];
+        if (reused) {
+          if (reused.data !== data) reused.data = data;
+          ordered.push(reused);
+        } else {
+          ordered.push(doc.createTextNode(data));
         }
-        outElement.replaceWith(original);
-        this.nodeMarkers.set(original, marker);
-      } else {
-        // A tag the translation introduced with no source counterpart: keep the
-        // freshly parsed node, but record its marker for future re-translates.
-        this.nodeMarkers.set(outElement, marker);
+        continue;
       }
+
+      if (t.nodeType !== Node.ELEMENT_NODE) {
+        ordered.push(t); // comment or other node — carry the parsed node through
+        continue;
+      }
+
+      const te = t as Element;
+
+      if (te.tagName.toLowerCase() === IGNORED_PLACEHOLDER_TAG) {
+        const k = parseInt(te.getAttribute('data-k') ?? '', 10);
+        const liveNode = Number.isNaN(k) ? undefined : liveIgnored[k];
+        if (liveNode) {
+          ordered.push(liveNode); // preserve the live ignored node (and its bindings)
+        } else {
+          // Framework dropped it — reconstruct from the verbatim masked markup.
+          const rebuilt = this.parseFragment(ignoredValues[k] ?? '');
+          for (const rn of Array.from(rebuilt.childNodes)) ordered.push(rn);
+        }
+        continue;
+      }
+
+      // Every non-placeholder fragment element was zipped into `elementMarker`
+      // above, and — because unmask only re-emits tags the Masker numbered from
+      // the source — the marker always resolves to a live node of the same tag
+      // (marker/count mismatches took the rebuild fallback in morphInto). So the
+      // reconcile path always reuses the live node in place; strip inline
+      // event-handler attributes to match unmask's sanitization.
+      const marker = elementMarker.get(te)!;
+      const liveNode = markerToNode.get(marker)!;
+      for (const name of liveNode.getAttributeNames()) {
+        if (name.toLowerCase().startsWith('on')) liveNode.removeAttribute(name);
+      }
+      this.reconcileChildren(liveNode, te.childNodes, elementMarker, markerToNode, liveIgnored, ignoredValues);
+      this.nodeMarkers.set(liveNode, marker);
+      ordered.push(liveNode);
     }
 
-    if (hasIgnored) this.restoreIgnoredNodes(element, fragment, variables);
+    this.arrangeChildren(liveParent, ordered);
+  }
 
+  /**
+   * Reorders `parent`'s children so they equal `ordered` (a sequence of nodes that
+   * are already children of `parent`, plus any freshly-created ones), moving reused
+   * nodes rather than recreating them and removing only the leftovers not in
+   * `ordered`. When `ordered` already matches the current children this performs no
+   * DOM writes, keeping re-application idempotent.
+   */
+  private arrangeChildren(parent: Element, ordered: Node[]): void {
+    let cursor: Node | null = parent.firstChild;
+    for (const node of ordered) {
+      if (node === cursor) {
+        cursor = cursor.nextSibling;
+      } else {
+        parent.insertBefore(node, cursor); // moves an existing child, or inserts a new one
+      }
+    }
+    while (cursor) {
+      const next = cursor.nextSibling;
+      parent.removeChild(cursor);
+      cursor = next;
+    }
+  }
+
+  /**
+   * Wholesale-replace `element`'s children with `fragment` — the documented
+   * fallback for output that can't be reconciled 1:1 (ICU branch selection or a
+   * tag-set change). This **loses inline child-node identity** (and any framework
+   * bindings on those nodes), so it runs only when a faithful reconcile is
+   * impossible; the written output is still correct. Live ignored nodes, when
+   * present, are spliced back in first so at least those keep their identity.
+   */
+  private rebuildChildren(
+    element: Element,
+    fragment: DocumentFragment,
+    variables: VariableInfo[],
+    hasIgnored: boolean
+  ): void {
+    if (hasIgnored) this.restoreIgnoredNodes(element, fragment, variables);
     element.replaceChildren(...Array.from(fragment.childNodes));
   }
 
