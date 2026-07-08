@@ -1016,4 +1016,196 @@ describe('Integration Tests', () => {
       vi.useFakeTimers();
     });
   });
+
+  describe('ignored descendants in an aggregated sentence', () => {
+    // A distinct bug from the flush-time portal guard above: an aggregation
+    // target that is NOT itself ignored but has an ignored *descendant* used to
+    // fold that descendant's (user-data) text into the translatable unit. It
+    // must instead be masked as an opaque variable and restored verbatim.
+
+    // The single reported item for the first flush.
+    function firstItem(onMissing: ReturnType<typeof vi.fn>): TranslationItem {
+      return (onMissing.mock.calls[0]![0] as TranslationItem[])[0]!;
+    }
+
+    it('masks an attribute-ignored child as a variable and restores it verbatim', async () => {
+      const onMissing = vi.fn().mockResolvedValue({
+        'Submitted By: {{0}}': 'Enviado por: {{0}}',
+      });
+      root.innerHTML =
+        '<div>Submitted By: <span class="font-bold" data-i18n-ignore>Kailey Booth</span></div>';
+      const i18n = new I18nObserver({ locale: 'es', onMissingTranslation: onMissing, rootElement: root });
+      i18n.start();
+      await flushDebounce();
+
+      const item = firstItem(onMissing);
+      expect(item.masked).toBe('Submitted By: {{0}}');
+      expect(item.masked).not.toContain('Kailey');
+      // The opaque slot round-trips as a variable; the original stays clean markup.
+      expect(item.variables).toHaveLength(1);
+      expect(item.variables[0]!.type).toBe('ignored');
+      expect(item.original).not.toContain('\uE000'); // no aggregation sentinels leak
+      expect(item.original).not.toContain('\uE001');
+      expect(item.original).toContain('Kailey Booth');
+      expect(item.variables[0]!.value).toContain('Kailey Booth');
+
+      const div = root.querySelector('div')!;
+      expect(div.textContent).toBe('Enviado por: Kailey Booth');
+      const span = div.querySelector('span')!;
+      expect(span.getAttribute('data-i18n-ignore')).toBe('');
+      expect(span.textContent).toBe('Kailey Booth');
+
+      i18n.stop();
+    });
+
+    it('masks a selector-ignored child the same way', async () => {
+      const onMissing = vi.fn().mockResolvedValue({
+        'Signed by {{0}}': 'Firmado por {{0}}',
+      });
+      root.innerHTML = '<div>Signed by <span class="username">jbooth</span></div>';
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        rootElement: root,
+        ignoreSelectors: ['.username'],
+      });
+      i18n.start();
+      await flushDebounce();
+
+      const item = firstItem(onMissing);
+      expect(item.masked).toBe('Signed by {{0}}');
+      expect(item.masked).not.toContain('jbooth');
+      expect(item.variables[0]!.type).toBe('ignored');
+
+      const div = root.querySelector('div')!;
+      expect(div.textContent).toBe('Firmado por jbooth');
+      expect(div.querySelector('.username')!.textContent).toBe('jbooth');
+
+      i18n.stop();
+    });
+
+    it('keeps a translatable inline child a marker while the ignored one is a variable', async () => {
+      const onMissing = vi.fn().mockResolvedValue({
+        'Please <b0>read</b0> this {{0}}': 'Por favor <b0>lea</b0> esto {{0}}',
+      });
+      root.innerHTML =
+        '<div>Please <b>read</b> this <span data-i18n-ignore>Kailey</span></div>';
+      const i18n = new I18nObserver({ locale: 'es', onMissingTranslation: onMissing, rootElement: root });
+      i18n.start();
+      await flushDebounce();
+
+      const item = firstItem(onMissing);
+      expect(item.masked).toBe('Please <b0>read</b0> this {{0}}');
+      expect(item.masked).not.toContain('Kailey');
+
+      const div = root.querySelector('div')!;
+      expect(div.querySelector('b')!.textContent).toBe('lea');
+      expect(div.querySelector('span[data-i18n-ignore]')!.textContent).toBe('Kailey');
+      expect(div.textContent).toBe('Por favor lea esto Kailey');
+
+      i18n.stop();
+    });
+
+    it('gives multiple ignored children stable, ordered variable slots', async () => {
+      const onMissing = vi.fn().mockResolvedValue({
+        'From {{0}} to {{1}}': 'De {{0}} a {{1}}',
+      });
+      root.innerHTML =
+        '<div>From <span data-i18n-ignore>Alice</span> to <span data-i18n-ignore>Bob</span></div>';
+      const i18n = new I18nObserver({ locale: 'es', onMissingTranslation: onMissing, rootElement: root });
+      i18n.start();
+      await flushDebounce();
+
+      const item = firstItem(onMissing);
+      expect(item.masked).toBe('From {{0}} to {{1}}');
+      expect(item.variables).toHaveLength(2);
+      expect(item.variables.every((v) => v.type === 'ignored')).toBe(true);
+
+      const div = root.querySelector('div')!;
+      // Each slot reinserted in its own place, in order.
+      expect(div.textContent).toBe('De Alice a Bob');
+      const spans = div.querySelectorAll('span[data-i18n-ignore]');
+      expect(spans[0]!.textContent).toBe('Alice');
+      expect(spans[1]!.textContent).toBe('Bob');
+
+      i18n.stop();
+    });
+
+    it('treats a nested ignored subtree as a single opaque slot', async () => {
+      const onMissing = vi.fn().mockResolvedValue({
+        'Owner: {{0}}': 'Propietario: {{0}}',
+      });
+      root.innerHTML =
+        '<div>Owner: <span data-i18n-ignore>Name <b>Booth</b> Jr.</span></div>';
+      const i18n = new I18nObserver({ locale: 'es', onMissingTranslation: onMissing, rootElement: root });
+      i18n.start();
+      await flushDebounce();
+
+      const item = firstItem(onMissing);
+      // The masker does NOT descend into the ignored subtree: one variable, and
+      // the nested <b> is not a separate structural marker.
+      expect(item.masked).toBe('Owner: {{0}}');
+      expect(item.variables).toHaveLength(1);
+      expect(item.variables[0]!.value).toContain('<b>Booth</b>');
+
+      const div = root.querySelector('div')!;
+      expect(div.querySelector('span[data-i18n-ignore] b')!.textContent).toBe('Booth');
+      expect(div.textContent).toBe('Propietario: Name Booth Jr.');
+
+      i18n.stop();
+    });
+
+    it('preserves the ignored child\'s live DOM node (and its listeners) on apply', async () => {
+      const onMissing = vi.fn().mockResolvedValue({
+        'Hi {{0}}': 'Hola {{0}}',
+      });
+      root.innerHTML = '<div>Hi <span data-i18n-ignore>there</span></div>';
+      const i18n = new I18nObserver({ locale: 'es', onMissingTranslation: onMissing, rootElement: root });
+      i18n.start();
+
+      const span = root.querySelector('span[data-i18n-ignore]')! as HTMLElement;
+      const clicks = vi.fn();
+      span.addEventListener('click', clicks);
+
+      await flushDebounce();
+
+      // Same node instance survived the morph — not reconstructed from innerHTML.
+      expect(root.querySelector('span[data-i18n-ignore]')).toBe(span);
+      span.dispatchEvent(new Event('click'));
+      expect(clicks).toHaveBeenCalledTimes(1);
+
+      i18n.stop();
+    });
+
+    it('leaves an ordinary inline-only sentence unchanged (no ignored variables)', async () => {
+      const onMissing = vi.fn().mockResolvedValue({
+        'Hello <b0>bold</b0> world': 'Hola <b0>negrita</b0> mundo',
+      });
+      root.innerHTML = '<p>Hello <b>bold</b> world</p>';
+      const i18n = new I18nObserver({ locale: 'es', onMissingTranslation: onMissing, rootElement: root });
+      i18n.start();
+      await flushDebounce();
+
+      const item = firstItem(onMissing);
+      expect(item.masked).toBe('Hello <b0>bold</b0> world');
+      expect(item.variables.some((v) => v.type === 'ignored')).toBe(false);
+      expect(root.querySelector('p')!.innerHTML).toBe('Hola <b>negrita</b> mundo');
+
+      i18n.stop();
+    });
+
+    it('does not report a sentence that is only punctuation once ignored slots are removed', async () => {
+      const onMissing = vi.fn().mockResolvedValue(null);
+      root.innerHTML = '<div>: <span data-i18n-ignore>Kailey Booth</span></div>';
+      const i18n = new I18nObserver({ locale: 'es', onMissingTranslation: onMissing, rootElement: root });
+      i18n.start();
+      await flushDebounce();
+
+      expect(onMissing).not.toHaveBeenCalled();
+      // Untouched, so the ignored user data is still on screen verbatim.
+      expect(root.querySelector('div')!.textContent).toBe(': Kailey Booth');
+
+      i18n.stop();
+    });
+  });
 });

@@ -1,15 +1,29 @@
 import type { ObserverConfig } from './types';
-import { isInsideIgnored } from './ignore';
+import { isInsideIgnored, serializeAggregate, type IgnorePredicateConfig } from './ignore';
 
 export class Observer {
   private config: ObserverConfig;
   private mutationObserver: MutationObserver | null = null;
   private allowedInlineTagsSet: Set<string>;
   private processedParents = new WeakSet<Element>();
+  private ignorePredicate: IgnorePredicateConfig;
 
   constructor(config: ObserverConfig) {
     this.config = config;
     this.allowedInlineTagsSet = new Set(config.allowedInlineTags);
+    this.ignorePredicate = {
+      ignoreAttribute: config.ignoreAttribute,
+      ignoreSelectors: config.ignoreSelectors,
+    };
+  }
+
+  /**
+   * Serialized inner HTML of an aggregation target, with any ignored descendant
+   * subtree bracketed so the Masker masks it as one opaque variable (keeping its
+   * user-data text out of the translatable unit).
+   */
+  private aggregatedContent(target: Element): string {
+    return serializeAggregate(target, this.ignorePredicate);
   }
 
   start(): void {
@@ -176,7 +190,7 @@ export class Observer {
     if (aggregationTarget) {
       if (!this.processedParents.has(aggregationTarget)) {
         this.processedParents.add(aggregationTarget);
-        const innerHTML = aggregationTarget.innerHTML;
+        const innerHTML = this.aggregatedContent(aggregationTarget);
         if (innerHTML.trim()) {
           this.config.onTextFound(aggregationTarget, innerHTML);
         }
@@ -214,7 +228,7 @@ export class Observer {
     if (aggregationTarget) {
       if (!this.processedParents.has(aggregationTarget)) {
         this.processedParents.add(aggregationTarget);
-        const innerHTML = aggregationTarget.innerHTML;
+        const innerHTML = this.aggregatedContent(aggregationTarget);
         if (innerHTML.trim()) {
           out.push({ element: aggregationTarget, text: innerHTML });
         }

@@ -2,6 +2,7 @@ import type { CasePattern, TranslationEntry, TranslationItem, TranslationItemDeb
 import { Store } from './Store';
 import { Queue } from './Queue';
 import { Masker } from './Masker';
+import { stripIgnoreSentinels, collectTopLevelIgnored, isIgnoredElement, IGNORED_PLACEHOLDER_TAG, type IgnorePredicateConfig } from './ignore';
 
 // ICU plural/select constructs pick one branch at evaluation time, so the masked
 // markers (which appear in every branch) won't line up with the evaluated output.
@@ -17,6 +18,15 @@ export interface TranslatorConfig {
   translatableAttributes: string[];
   onMissingTranslation: OnMissingTranslationCallback;
   debug: boolean;
+  /**
+   * Canonical string form of an aggregated (`isHtml`) element — the Observer's
+   * `serializeAggregate`, which brackets ignored descendants so the two sides
+   * agree on what an element's content "is". Defaults to plain `innerHTML`
+   * (no ignored-subtree handling) when omitted.
+   */
+  serializeAggregate?: (element: Element) => string;
+  /** Attribute/selectors identifying ignore boundaries; used to preserve live nodes on apply. */
+  ignorePredicate?: IgnorePredicateConfig;
 }
 
 interface PendingNode {
@@ -50,6 +60,11 @@ export class Translator {
   // placed in an aggregated unit, so a later re-translate can reuse the same live
   // nodes even when a translation reordered them. See morphInto/buildMarkerToNode.
   private nodeMarkers = new WeakMap<Element, string>();
+  // Canonical serialization / ignore predicate for aggregated elements, injected
+  // so the Translator stays free of ignore/root config. Defaults keep behavior
+  // identical for callers (e.g. tests) that don't wire them up.
+  private serializeAggregate: (element: Element) => string;
+  private ignorePredicate: IgnorePredicateConfig;
 
   constructor(
     store: Store,
@@ -61,6 +76,13 @@ export class Translator {
     this.queue = queue;
     this.masker = masker;
     this.config = config;
+    this.serializeAggregate = config.serializeAggregate ?? ((element) => element.innerHTML);
+    this.ignorePredicate = config.ignorePredicate ?? { ignoreAttribute: '', ignoreSelectors: [] };
+  }
+
+  /** Current displayed content of an element in its canonical string form. */
+  private currentContent(element: Element, isHtml: boolean): string {
+    return isHtml ? this.serializeAggregate(element) : (element.textContent ?? '');
   }
 
   processText(element: Element, originalText: string): void {
@@ -200,7 +222,7 @@ export class Translator {
       } else {
         // Skip if the content changed since it was tracked — the newer
         // content has its own translation cycle
-        const current = node.isHtml ? node.element.innerHTML : node.element.textContent;
+        const current = this.currentContent(node.element, node.isHtml);
         if (current !== node.snapshot) continue;
 
         this.applyTranslation(node.element, resolved, {
@@ -239,7 +261,7 @@ export class Translator {
       // Skip elements whose content changed since we last wrote them — the
       // marker is stale and re-applying would clobber the newer content
       const lastKnown = this.lastApplied.get(element);
-      const current = isHtml ? element.innerHTML : element.textContent;
+      const current = this.currentContent(element, isHtml);
       if (lastKnown !== undefined && current !== lastKnown) {
         continue;
       }
@@ -323,10 +345,12 @@ export class Translator {
         // Only restore if the content is still what we wrote — otherwise the
         // element was rewritten since and the newer content wins
         const lastKnown = this.lastApplied.get(element);
-        const current = isHtml ? element.innerHTML : element.textContent;
+        const current = this.currentContent(element, isHtml);
         if (lastKnown === undefined || current === lastKnown) {
           if (isHtml) {
-            element.innerHTML = originalText;
+            // Stored original carries aggregation sentinels around ignored
+            // subtrees; strip them back to clean markup before writing.
+            element.innerHTML = stripIgnoreSentinels(originalText);
           } else {
             element.textContent = originalText;
           }
@@ -443,10 +467,18 @@ export class Translator {
     const output = maskResult.leadingWhitespace + this.masker.applyCasePattern(unmasked, casePattern) + maskResult.trailingWhitespace;
 
     if (isHtml) {
-      this.morphInto(element, output, value);
-      // Record the browser's serialization, which is what mutation callbacks
+      // When the unit contains ignored subtrees, morph off a placeholder
+      // rendering (each ignored slot an empty marker element) so we can splice
+      // the live ignored DOM nodes back in rather than reconstruct them.
+      let placeholderOutput: string | undefined;
+      if (maskResult.variables.some((v) => v.type === 'ignored')) {
+        const p = this.masker.unmask(value, maskResult.variables, maskResult.tagAttributes, this.config.locale, originalText, 'placeholder');
+        placeholderOutput = maskResult.leadingWhitespace + this.masker.applyCasePattern(p, casePattern) + maskResult.trailingWhitespace;
+      }
+      this.morphInto(element, output, value, maskResult.variables, placeholderOutput);
+      // Record the canonical serialization, which is what mutation callbacks
       // will echo back
-      this.lastApplied.set(element, element.innerHTML);
+      this.lastApplied.set(element, this.serializeAggregate(element));
     } else {
       element.textContent = output;
       this.lastApplied.set(element, output);
@@ -466,9 +498,25 @@ export class Translator {
    * branch selection, or tags the translation added/dropped), so the written
    * output is always correct — node reuse is a best-effort enhancement over it.
    */
-  private morphInto(element: Element, output: string, maskedValue: string): void {
+  private morphInto(
+    element: Element,
+    output: string,
+    maskedValue: string,
+    variables: VariableInfo[] = [],
+    placeholderOutput?: string
+  ): void {
+    const hasIgnored = placeholderOutput !== undefined;
+
     if (ICU_PATTERN.test(maskedValue)) {
-      element.innerHTML = output;
+      if (hasIgnored) {
+        // ICU branch selection breaks marker mapping, but we can still preserve
+        // the ignored live nodes: parse the placeholder rendering and splice.
+        const fragment = this.parseFragment(placeholderOutput);
+        this.restoreIgnoredNodes(element, fragment, variables);
+        element.replaceChildren(...Array.from(fragment.childNodes));
+      } else {
+        element.innerHTML = output;
+      }
       return;
     }
 
@@ -481,16 +529,25 @@ export class Translator {
       markers.push(`${match[1]}${match[2]}`);
     }
 
-    const template = document.createElement('template');
-    template.innerHTML = output;
-    const fragment = template.content;
-    const outElements = fragment.querySelectorAll('*');
+    // Ignored subtrees ride through as opaque `<i18n-ignored>` placeholders in
+    // the morph rendering; keep them out of marker matching (they aren't tags
+    // the Masker numbered) and swap them for live nodes afterward.
+    const fragment = this.parseFragment(hasIgnored ? placeholderOutput : output);
+    const outElements = Array.from(fragment.querySelectorAll('*')).filter(
+      (e) => e.tagName.toLowerCase() !== IGNORED_PLACEHOLDER_TAG
+    );
 
     // unmask preserves tree shape, so the k-th output element lines up with the
     // k-th opening marker. If they don't, we can't map reliably — bail to a plain
-    // replace (correct output, just without node reuse).
+    // replace (correct output, just without inline-node reuse), still preserving
+    // the ignored live nodes.
     if (outElements.length !== markers.length) {
-      element.innerHTML = output;
+      if (hasIgnored) {
+        this.restoreIgnoredNodes(element, fragment, variables);
+        element.replaceChildren(...Array.from(fragment.childNodes));
+      } else {
+        element.innerHTML = output;
+      }
       return;
     }
 
@@ -519,7 +576,38 @@ export class Translator {
       }
     }
 
+    if (hasIgnored) this.restoreIgnoredNodes(element, fragment, variables);
+
     element.replaceChildren(...Array.from(fragment.childNodes));
+  }
+
+  private parseFragment(html: string): DocumentFragment {
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    return template.content;
+  }
+
+  /**
+   * Replaces each `<i18n-ignored data-k>` placeholder in `fragment` with the
+   * corresponding live ignored DOM node from `element` (preserving its listeners
+   * / framework bindings). When no live node survives — the framework re-rendered
+   * or dropped it — reconstruct the subtree from the masked variable's verbatim
+   * markup so the output is still correct.
+   */
+  private restoreIgnoredNodes(element: Element, fragment: DocumentFragment, variables: VariableInfo[]): void {
+    const live = collectTopLevelIgnored(element, this.ignorePredicate);
+    const ignoredValues = variables.filter((v) => v.type === 'ignored').map((v) => v.value);
+    const placeholders = fragment.querySelectorAll(IGNORED_PLACEHOLDER_TAG);
+    for (const placeholder of placeholders) {
+      const k = parseInt(placeholder.getAttribute('data-k') ?? '', 10);
+      const liveNode = Number.isNaN(k) ? undefined : live[k];
+      if (liveNode) {
+        placeholder.replaceWith(liveNode);
+      } else {
+        const rebuilt = this.parseFragment(ignoredValues[k] ?? '');
+        placeholder.replaceWith(...Array.from(rebuilt.childNodes));
+      }
+    }
   }
 
   /**
@@ -533,6 +621,10 @@ export class Translator {
     const elements: Element[] = [];
     const collect = (parent: Element): void => {
       for (const child of parent.children) {
+        // Skip ignored subtrees: the Masker never numbered them as inline
+        // markers (they're opaque variables), so counting them here would
+        // shift every real marker's index.
+        if (isIgnoredElement(child, this.ignorePredicate)) continue;
         elements.push(child);
         collect(child);
       }
@@ -590,7 +682,7 @@ export class Translator {
       leadingWhitespace: maskResult.leadingWhitespace,
       trailingWhitespace: maskResult.trailingWhitespace,
       originalText,
-      snapshot: (isHtml ? element.innerHTML : element.textContent) ?? '',
+      snapshot: this.currentContent(element, isHtml),
       isHtml,
       scope,
     });
@@ -615,7 +707,9 @@ export class Translator {
   ): TranslationItem {
     const item: TranslationItem = {
       masked: cacheKey,
-      original: originalText,
+      // Strip aggregation sentinels so the reported source is clean, human-
+      // readable markup (the opaque regions are represented by the variables).
+      original: stripIgnoreSentinels(originalText),
       variables,
     };
     if (scope) {

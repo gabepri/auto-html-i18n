@@ -1,5 +1,6 @@
 import { IntlMessageFormat } from 'intl-messageformat';
 import { getLocaleDirection } from './direction';
+import { IGNORE_OPEN, IGNORE_CLOSE, IGNORED_PLACEHOLDER_TAG, stripIgnoreSentinels } from './ignore';
 import type { CasePattern, IcuValidationResult, IgnoreWordEntry, MaskerConfig, MaskResult, TranslationFormat, VariableInfo, VariableType } from './types';
 
 interface IgnoreWordInternal {
@@ -16,8 +17,12 @@ const FSI = '\u2068'; // FIRST STRONG ISOLATE
 const PDI = '\u2069'; // POP DIRECTIONAL ISOLATE
 
 // Variable types wrapped in FSI…PDI when substituted into RTL output. Comments
-// are markup and symbols are direction-neutral, so neither is isolated.
+// are markup and symbols are direction-neutral, so neither is isolated. Ignored
+// subtrees are opaque markup, so they aren't isolated either.
 const BIDI_ISOLATED_TYPES = new Set<VariableType>(['ignoreWord', 'number', 'date', 'url', 'email']);
+
+/** How unmask renders an ignored-subtree variable. */
+export type IgnoredMode = 'inline' | 'placeholder';
 
 export class Masker {
   private ignoreWords: IgnoreWordInternal[];
@@ -37,6 +42,21 @@ export class Masker {
     text = text.replace(BIDI_CONTROLS, '');
     if (text === '') {
       return { masked: '', variables: [], tagAttributes: new Map(), casePattern: 'lower', leadingWhitespace: '', trailingWhitespace: '' };
+    }
+
+    // Phase 0: Lift out ignored subtrees (bracketed by the aggregation
+    // serializer) before any tag/variable masking sees them, so their user-data
+    // text never reaches the cache key. Each region collapses to a small
+    // `<k>` token — carrying no angle brackets — that phase 2 turns
+    // into one opaque `ignored` variable holding the region's verbatim markup.
+    const ignoredValues: string[] = [];
+    if (text.indexOf(IGNORE_OPEN) !== -1) {
+      const regionRe = new RegExp(`${IGNORE_OPEN}([\\s\\S]*?)${IGNORE_CLOSE}`, 'g');
+      text = text.replace(regionRe, (_match, inner: string) => {
+        const k = ignoredValues.length;
+        ignoredValues.push(inner);
+        return `${IGNORE_OPEN}${k}${IGNORE_CLOSE}`;
+      });
     }
 
     // Phase 1: Normalize allowed inline tags — strip attributes, assign indices,
@@ -96,6 +116,22 @@ export class Masker {
     let masked = '';
     let i = 0;
     while (i < tagProcessed.length) {
+      // An ignored-subtree region (lifted out in phase 0) becomes one opaque
+      // variable whose value is the region's verbatim markup, so it round-trips
+      // exactly like other masked variables and never makes the string
+      // translatable on its own.
+      if (tagProcessed[i] === IGNORE_OPEN) {
+        const closeIdx = tagProcessed.indexOf(IGNORE_CLOSE, i + 1);
+        if (closeIdx !== -1) {
+          const k = parseInt(tagProcessed.slice(i + 1, closeIdx), 10);
+          const index = variables.length;
+          variables.push({ value: ignoredValues[k] ?? '', type: 'ignored' });
+          masked += `{{${index}}}`;
+          i = closeIdx + 1;
+          continue;
+        }
+      }
+
       // Mask HTML comments as variables
       if (tagProcessed.startsWith('<!--', i)) {
         const closeIdx = tagProcessed.indexOf('-->', i + 4);
@@ -183,7 +219,8 @@ export class Masker {
     variables: VariableInfo[],
     tagAttributes: Map<string, Record<string, string>>,
     locale?: string,
-    original?: string
+    original?: string,
+    ignoredMode: IgnoredMode = 'inline'
   ): string {
     if (translated === '') {
       return '';
@@ -195,18 +232,20 @@ export class Masker {
     // while still escaping any tags the translation itself introduced.
     const format = this.detectFormat(translated);
     const markupSentinels: [string, string][] = [];
+    const ignoredSeq = this.buildIgnoredSeq(variables);
 
     let result: string;
 
     if (format === 'icu' && locale) {
       try {
-        result = this.evaluateICU(translated, variables, locale, markupSentinels);
+        result = this.evaluateICU(translated, variables, locale, markupSentinels, ignoredMode, ignoredSeq);
       } catch {
         if (original !== undefined) {
           // Fall back to the untranslated source text. It needs no tag
-          // restoration or sanitizing, but is trimmed so callers can re-apply
-          // the edge whitespace they extracted at mask time.
-          return original.replace(/^\s+/, '').replace(/\s+$/, '');
+          // restoration or sanitizing, but is stripped of any aggregation
+          // sentinels and trimmed so callers can re-apply the edge whitespace
+          // they extracted at mask time.
+          return stripIgnoreSentinels(original).replace(/^\s+/, '').replace(/\s+$/, '');
         }
         // No original available — fall back to the raw pattern
         result = translated;
@@ -215,8 +254,10 @@ export class Masker {
       // Simple substitution
       const isolate = locale !== undefined && getLocaleDirection(locale) === 'rtl';
       result = translated.replace(/\{\{(\d+)\}\}/g, (_match, indexStr: string) => {
-        const variable = variables[parseInt(indexStr, 10)];
+        const idx = parseInt(indexStr, 10);
+        const variable = variables[idx];
         if (variable === undefined) return `{{${indexStr}}}`;
+        if (variable.type === 'ignored') return this.ignoredSubstitution(variable, idx, ignoredMode, ignoredSeq, markupSentinels);
         if (variable.type === 'markup') return this.markupSentinel(variable.value, markupSentinels);
         return isolate && BIDI_ISOLATED_TYPES.has(variable.type)
           ? FSI + variable.value + PDI
@@ -251,6 +292,37 @@ export class Masker {
     return result;
   }
 
+  /** Maps each ignored variable's index to its 0-based order among ignored variables. */
+  private buildIgnoredSeq(variables: VariableInfo[]): Map<number, number> {
+    const seq = new Map<number, number>();
+    let k = 0;
+    for (let i = 0; i < variables.length; i++) {
+      if (variables[i]!.type === 'ignored') seq.set(i, k++);
+    }
+    return seq;
+  }
+
+  /**
+   * Substitution for an ignored-subtree variable. In `inline` mode it restores
+   * the region's verbatim markup (sanitize-proof, like a markup variable). In
+   * `placeholder` mode it emits a throwaway `<i18n-ignored data-k>` element the
+   * Translator swaps for the live ignored DOM node — so the node (and its
+   * listeners) is preserved rather than reconstructed.
+   */
+  private ignoredSubstitution(
+    variable: VariableInfo,
+    varIndex: number,
+    mode: IgnoredMode,
+    seq: Map<number, number>,
+    out: [string, string][]
+  ): string {
+    if (mode === 'placeholder') {
+      const k = seq.get(varIndex) ?? 0;
+      return this.markupSentinel(`<${IGNORED_PLACEHOLDER_TAG} data-k="${k}"></${IGNORED_PLACEHOLDER_TAG}>`, out);
+    }
+    return this.markupSentinel(variable.value, out);
+  }
+
   /**
    * Dry-runs a translation string exactly as consumption would: detects the
    * format ({{N}} simple, {N ICU, or plain), evaluates it against the given
@@ -264,11 +336,12 @@ export class Masker {
   ): IcuValidationResult {
     const format = this.detectFormat(translated);
     const markupSentinels: [string, string][] = [];
+    const ignoredSeq = this.buildIgnoredSeq(variables);
 
     let output: string;
     if (format === 'icu') {
       try {
-        output = this.evaluateICU(translated, variables, locale, markupSentinels);
+        output = this.evaluateICU(translated, variables, locale, markupSentinels, 'inline', ignoredSeq);
       } catch (err) {
         return { valid: false, format, error: err instanceof Error ? err.message : String(err) };
       }
@@ -276,11 +349,13 @@ export class Masker {
       const missing = new Set<string>();
       const isolate = getLocaleDirection(locale) === 'rtl';
       output = translated.replace(/\{\{(\d+)\}\}/g, (match, indexStr: string) => {
-        const variable = variables[parseInt(indexStr, 10)];
+        const idx = parseInt(indexStr, 10);
+        const variable = variables[idx];
         if (variable === undefined) {
           missing.add(match);
           return match;
         }
+        if (variable.type === 'ignored') return this.ignoredSubstitution(variable, idx, 'inline', ignoredSeq, markupSentinels);
         if (variable.type === 'markup') return this.markupSentinel(variable.value, markupSentinels);
         return isolate && BIDI_ISOLATED_TYPES.has(variable.type)
           ? FSI + variable.value + PDI
@@ -458,7 +533,9 @@ export class Masker {
     pattern: string,
     variables: VariableInfo[],
     locale: string,
-    markupOut?: [string, string][]
+    markupOut?: [string, string][],
+    ignoredMode: IgnoredMode = 'inline',
+    ignoredSeq?: Map<number, number>
   ): string {
     // Temporarily replace all HTML tags to prevent ICU parser conflicts
     const tagPlaceholders: [string, string][] = [];
@@ -474,7 +551,9 @@ export class Masker {
     for (let i = 0; i < variables.length; i++) {
       const vi = variables[i]!;
       // Parse numbers for proper ICU plural rule evaluation
-      if (vi.type === 'markup' && markupOut) {
+      if (vi.type === 'ignored' && markupOut) {
+        args[String(i)] = this.ignoredSubstitution(vi, i, ignoredMode, ignoredSeq ?? this.buildIgnoredSeq(variables), markupOut);
+      } else if (vi.type === 'markup' && markupOut) {
         // Hold markup behind a sanitize-proof sentinel; restored verbatim by the caller.
         args[String(i)] = this.markupSentinel(vi.value, markupOut);
       } else if (vi.type === 'number') {

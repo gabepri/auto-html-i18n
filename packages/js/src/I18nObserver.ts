@@ -5,7 +5,7 @@ import { Queue } from './Queue';
 import { Masker } from './Masker';
 import { Observer } from './Observer';
 import { Translator } from './Translator';
-import { isInsideIgnored } from './ignore';
+import { isInsideIgnored, serializeAggregate, type IgnorePredicateConfig } from './ignore';
 
 const DEFAULTS = {
   allowedInlineTags: ['a', 'b', 'i', 'u', 'strong', 'em', 'span', 'small', 'mark', 'del'],
@@ -60,6 +60,11 @@ export class I18nObserver {
     this.config = config;
     this.currentLocale = config.locale;
 
+    const ignorePredicate: IgnorePredicateConfig = {
+      ignoreAttribute: config.ignoreAttribute,
+      ignoreSelectors: config.ignoreSelectors,
+    };
+
     // Initialize internal modules
     this.store = new Store();
     this.masker = new Masker({
@@ -81,6 +86,8 @@ export class I18nObserver {
         translatableAttributes: config.translatableAttributes,
         onMissingTranslation: config.onMissingTranslation,
         debug: config.debug,
+        serializeAggregate: (element) => serializeAggregate(element, ignorePredicate),
+        ignorePredicate,
       }
     );
 
@@ -105,6 +112,8 @@ export class I18nObserver {
         translatableAttributes: config.translatableAttributes,
         onMissingTranslation: config.onMissingTranslation,
         debug: config.debug,
+        serializeAggregate: (element) => serializeAggregate(element, ignorePredicate),
+        ignorePredicate,
       }
     );
 
