@@ -1673,6 +1673,31 @@ describe('Translator', () => {
       expect(p.hasAttribute('data-i18n-pending')).toBe(false);
     });
 
+    it('revertAll preserves child element node identity for an aggregated unit', () => {
+      // Symmetric to the apply path: reverting an aggregated sentence that holds a
+      // framework-tracked child (a router-link) must reuse the live child node, not
+      // blow it away via `innerHTML =`. Orphaning it crashes the framework on the
+      // node's next unmount — the same class of bug the apply-side morph fixes.
+      const { translator, store } = createDeps();
+      store.set('es', 'Completado <a0>Reto</a0>', 'Done <a0>Task</a0>');
+
+      const div = document.createElement('div');
+      div.innerHTML = 'Completado <a href="/x">Reto</a>';
+      root.appendChild(div);
+
+      translator.processText(div, 'Completado <a href="/x">Reto</a>');
+      const anchor = div.querySelector('a')!;
+      expect(div.innerHTML).toBe('Done <a href="/x">Task</a>');
+
+      translator.revertAll();
+
+      // Content restored...
+      expect(div.innerHTML).toBe('Completado <a href="/x">Reto</a>');
+      // ...and the SAME <a> element instance survived the revert.
+      expect(div.querySelector('a')).toBe(anchor);
+      expect(div.hasAttribute('data-i18n-original')).toBe(false);
+    });
+
     it('revertAll should still restore unchanged translated text', () => {
       const { translator, store } = createDeps();
       store.set('es', 'Hello', 'Hola');

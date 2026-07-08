@@ -387,9 +387,13 @@ export class Translator {
         const current = this.currentContent(element, isHtml);
         if (lastKnown === undefined || current === lastKnown) {
           if (isHtml) {
-            // Stored original carries aggregation sentinels around ignored
-            // subtrees; strip them back to clean markup before writing.
-            element.innerHTML = stripIgnoreSentinels(originalText);
+            // Symmetric to the apply path: morph the original back onto the
+            // element so a framework-tracked child (a router-link, a component
+            // root) keeps its live node rather than being recreated by
+            // `innerHTML =` and orphaned. The stored original is the canonical
+            // sentinel-bracketed form, so re-masking it reproduces the same
+            // markers/variables morphInto used on apply.
+            this.morphOriginalInto(element, originalText);
           } else {
             this.setLeafText(element, originalText);
           }
@@ -564,6 +568,30 @@ export class Translator {
    * does it fall back to {@link rebuildChildren}, a wholesale replace that keeps
    * the written output correct but **loses inline child-node identity**.
    */
+  /**
+   * Restore an aggregated element's original markup **in place** (revert path).
+   * Re-masks the stored canonical original to recover the same markers/variables
+   * the apply-side morph used, then drives {@link morphInto} with the original as
+   * the target output so live child nodes are reused rather than recreated.
+   */
+  private morphOriginalInto(element: Element, originalText: string): void {
+    const maskResult = this.masker.mask(originalText);
+    let placeholderOutput: string | undefined;
+    if (maskResult.variables.some((v) => v.type === 'ignored')) {
+      placeholderOutput = this.masker.unmask(
+        maskResult.masked,
+        maskResult.variables,
+        maskResult.tagAttributes,
+        this.config.locale,
+        originalText,
+        'placeholder'
+      );
+    }
+    // Stored original carries aggregation sentinels around ignored subtrees;
+    // strip them back to clean markup for the rendered (non-placeholder) output.
+    this.morphInto(element, stripIgnoreSentinels(originalText), maskResult.masked, maskResult.variables, placeholderOutput);
+  }
+
   private morphInto(
     element: Element,
     output: string,
