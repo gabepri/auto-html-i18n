@@ -60,6 +60,15 @@ export class Translator {
   // placed in an aggregated unit, so a later re-translate can reuse the same live
   // nodes even when a translation reordered them. See morphInto/buildMarkerToNode.
   private nodeMarkers = new WeakMap<Element, string>();
+  // Value-based, locale-scoped echo guard. Maps the normalized (masked) form of
+  // every output we've actually written to the DOM -> the source text it came
+  // from, per locale. Unlike `lastApplied` (keyed on element identity + exact
+  // string), this survives a framework re-creating the node (transition, v-if,
+  // keyed reorder) and any whitespace drift: when a swapped-in node carries our
+  // own translation as its "source" text, we recognize it here and re-establish
+  // the marker instead of reporting it as a fresh source string. Keyed by locale
+  // so an output for locale A never suppresses reporting under locale B.
+  private appliedOutputs = new Map<string, Map<string, string>>();
   // Canonical serialization / ignore predicate for aggregated elements, injected
   // so the Translator stays free of ignore/root config. Defaults keep behavior
   // identical for callers (e.g. tests) that don't wire them up.
@@ -106,6 +115,24 @@ export class Translator {
 
     // Skip if masked text has no translatable content (only variables, tags, whitespace, punctuation)
     if (!keyOverride && !hasTranslatableContent(maskResult.masked)) {
+      return;
+    }
+
+    // Value-based echo guard. The element-identity checks above miss our own
+    // output when a framework re-created the node (so it carries neither our
+    // `lastApplied` entry nor the `data-i18n-original` marker) or when whitespace
+    // drift defeated the exact-equality check. Compare the *normalized* incoming
+    // text against the outputs we've actually applied in this locale; if it's one
+    // of ours, re-establish the marker on THIS node and stop — never report our
+    // own translation as fresh source (which would mint a bogus target-language
+    // row). Accepted trade-off: a genuinely new source string that coincidentally
+    // equals a prior translation OUTPUT in the active locale is suppressed. Rare,
+    // and strongly preferable to leaking target-language rows.
+    const echoedOriginal = this.appliedOutputs.get(this.config.locale)?.get(maskResult.masked);
+    if (echoedOriginal !== undefined) {
+      element.setAttribute(this.config.originalAttribute, echoedOriginal);
+      element.removeAttribute(this.config.pendingAttribute);
+      this.lastApplied.set(element, this.currentContent(element, isHtml));
       return;
     }
 
@@ -157,6 +184,18 @@ export class Translator {
     const maskResult = this.masker.mask(originalValue);
 
     if (!hasTranslatableContent(maskResult.masked)) {
+      return;
+    }
+
+    // Value-based echo guard (see processText): recognize an attribute value that
+    // is our own applied output re-collected on a framework-recreated node, and
+    // re-establish its marker instead of reporting it as new source.
+    const echoedOriginal = this.appliedOutputs.get(this.config.locale)?.get(maskResult.masked);
+    if (echoedOriginal !== undefined) {
+      element.setAttribute(originalAttrName, echoedOriginal);
+      // `originalValue` is the recognized output currently displayed — record it
+      // as the last-applied marker so a later exact echo short-circuits.
+      this.attrMapFor(element).set(attr, originalValue);
       return;
     }
 
@@ -486,6 +525,7 @@ export class Translator {
 
     element.setAttribute(this.config.originalAttribute, originalText);
     element.removeAttribute(this.config.pendingAttribute);
+    this.recordAppliedOutput(this.lastApplied.get(element)!, originalText);
   }
 
   /**
@@ -765,12 +805,34 @@ export class Translator {
     const output = maskResult.leadingWhitespace + this.masker.applyCasePattern(unmasked, maskResult.casePattern) + maskResult.trailingWhitespace;
     element.setAttribute(attr, output);
 
+    this.attrMapFor(element).set(attr, output);
+    this.recordAppliedOutput(output, originalValue);
+  }
+
+  /** Lazily-created per-element map of attr name -> last output we wrote for it. */
+  private attrMapFor(element: Element): Map<string, string> {
     let applied = this.lastAppliedAttrs.get(element);
     if (!applied) {
       applied = new Map();
       this.lastAppliedAttrs.set(element, applied);
     }
-    applied.set(attr, output);
+    return applied;
+  }
+
+  /**
+   * Index a concrete output string we just wrote to the DOM under the current
+   * locale, keyed by its normalized (masked) form so the echo guard in
+   * processText/processAttribute recognizes it regardless of the element it lands
+   * on or trailing/collapsed whitespace. See {@link appliedOutputs}.
+   */
+  private recordAppliedOutput(concreteOutput: string, sourceOriginal: string): void {
+    const normalized = this.masker.mask(concreteOutput).masked;
+    let map = this.appliedOutputs.get(this.config.locale);
+    if (!map) {
+      map = new Map();
+      this.appliedOutputs.set(this.config.locale, map);
+    }
+    map.set(normalized, sourceOriginal);
   }
 
   private trackPendingNode(

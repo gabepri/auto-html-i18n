@@ -1680,4 +1680,163 @@ describe('Translator', () => {
       expect(input.hasAttribute('data-i18n-original-placeholder')).toBe(false);
     });
   });
+
+  // The element-identity echo guard (lastApplied + exact string) misses our own
+  // output when a framework re-creates the node (transition, v-if, keyed reorder)
+  // or when whitespace drifts. The value-based, locale-scoped guard recognizes
+  // the applied output regardless of node identity or exact equality, so we never
+  // re-collect a translation as a fresh (target-language) source string.
+  describe('value-based echo guard (framework node replacement / whitespace)', () => {
+    it('recognizes its own output re-collected on a framework-recreated node and does not report it', () => {
+      const { translator, store, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+      store.set('es', 'Notification', 'Notificación');
+
+      const p1 = document.createElement('p');
+      p1.textContent = 'Notification';
+      root.appendChild(p1);
+      translator.processText(p1, 'Notification');
+      expect(p1.textContent).toBe('Notificación');
+      enqueueSpy.mockClear();
+
+      // Framework remounts: the original node is gone, a NEW node carries the
+      // OUTPUT text, with no lastApplied entry and no data-i18n-original marker.
+      root.removeChild(p1);
+      const p2 = document.createElement('p');
+      p2.textContent = 'Notificación';
+      root.appendChild(p2);
+
+      translator.processText(p2, 'Notificación');
+
+      expect(enqueueSpy).not.toHaveBeenCalled();
+      // Marker re-stamped on the new node so it participates going forward.
+      expect(p2.getAttribute('data-i18n-original')).toBe('Notification');
+      expect(p2.textContent).toBe('Notificación'); // already correct — not re-applied
+    });
+
+    it('recognizes its own output despite trailing-whitespace drift on a fresh node', () => {
+      const { translator, store, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+      store.set('es', 'Notification', 'Notificación');
+
+      const p1 = document.createElement('p');
+      p1.textContent = 'Notification';
+      root.appendChild(p1);
+      translator.processText(p1, 'Notification');
+      enqueueSpy.mockClear();
+
+      const p2 = document.createElement('p');
+      p2.textContent = 'Notificación '; // trailing space — defeats raw === compare
+      root.appendChild(p2);
+      translator.processText(p2, 'Notificación ');
+
+      expect(enqueueSpy).not.toHaveBeenCalled();
+      expect(p2.getAttribute('data-i18n-original')).toBe('Notification');
+    });
+
+    it('recognizes its own applied attribute output on a framework-recreated node', () => {
+      const { translator, store, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+      store.set('es', 'Notifications', 'Notificaciones');
+
+      const i1 = document.createElement('input');
+      i1.setAttribute('title', 'Notifications');
+      root.appendChild(i1);
+      translator.processAttribute(i1, 'title', 'Notifications');
+      expect(i1.getAttribute('title')).toBe('Notificaciones');
+      enqueueSpy.mockClear();
+
+      // The OUTPUT value lands on a new node with no original-tracking marker.
+      const i2 = document.createElement('input');
+      i2.setAttribute('title', 'Notificaciones');
+      root.appendChild(i2);
+      translator.processAttribute(i2, 'title', 'Notificaciones');
+
+      expect(enqueueSpy).not.toHaveBeenCalled();
+      expect(i2.getAttribute('data-i18n-original-title')).toBe('Notifications');
+      expect(i2.getAttribute('title')).toBe('Notificaciones');
+    });
+
+    it('still reports a genuinely new source string that is not any known output', () => {
+      const { translator, store, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+      store.set('es', 'Notification', 'Notificación');
+
+      const p1 = document.createElement('p');
+      p1.textContent = 'Notification';
+      root.appendChild(p1);
+      translator.processText(p1, 'Notification');
+      enqueueSpy.mockClear();
+
+      const p2 = document.createElement('p');
+      p2.textContent = 'Settings'; // brand-new source, not an output
+      root.appendChild(p2);
+      translator.processText(p2, 'Settings');
+
+      expect(enqueueSpy).toHaveBeenCalledTimes(1);
+      expect(enqueueSpy.mock.calls[0]![0].masked).toBe('Settings');
+    });
+
+    it('is locale-scoped: an output indexed under locale A does not suppress reporting under locale B', () => {
+      const { translator, store, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+      store.set('es', 'Notification', 'Notificación');
+
+      const p1 = document.createElement('p');
+      p1.textContent = 'Notification';
+      root.appendChild(p1);
+      translator.processText(p1, 'Notification'); // indexes es → "Notificación"
+      enqueueSpy.mockClear();
+
+      translator.setLocale('de');
+
+      const p2 = document.createElement('p');
+      p2.textContent = 'Notificación'; // same value, but the active locale is now de
+      root.appendChild(p2);
+      translator.processText(p2, 'Notificación');
+
+      expect(enqueueSpy).toHaveBeenCalledTimes(1); // reported: not a `de` output
+      expect(enqueueSpy.mock.calls[0]![0].masked).toBe('Notificación');
+    });
+
+    it('suppresses a new source that coincidentally equals a known output in the active locale (documented trade-off)', () => {
+      const { translator, store, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+      store.set('es', 'Hello', 'Hola');
+
+      const p1 = document.createElement('p');
+      p1.textContent = 'Hello';
+      root.appendChild(p1);
+      translator.processText(p1, 'Hello'); // indexes es → "Hola"
+      enqueueSpy.mockClear();
+
+      // A genuinely-new source string that happens to equal the "Hola" output.
+      // The accepted false positive: it is suppressed rather than reported.
+      const p2 = document.createElement('p');
+      p2.textContent = 'Hola';
+      root.appendChild(p2);
+      translator.processText(p2, 'Hola');
+
+      expect(enqueueSpy).not.toHaveBeenCalled();
+      expect(p2.getAttribute('data-i18n-original')).toBe('Hello');
+    });
+
+    it('regression: still ignores the same-element exact-match echo without consulting the value index', () => {
+      const { translator, store, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+      store.set('es', 'Hello', 'Hola');
+
+      const p = document.createElement('p');
+      p.textContent = 'Hello';
+      root.appendChild(p);
+      translator.processText(p, 'Hello');
+      expect(p.textContent).toBe('Hola');
+
+      // Same element, byte-identical echo — caught by the element-identity guard.
+      translator.processText(p, 'Hola');
+
+      expect(enqueueSpy).not.toHaveBeenCalled();
+      expect(p.getAttribute('data-i18n-original')).toBe('Hello');
+    });
+  });
 });
