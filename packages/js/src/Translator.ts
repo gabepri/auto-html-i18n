@@ -23,7 +23,9 @@ import { stripIgnoreSentinels, collectTopLevelIgnored, isIgnoredElement, IGNORED
  * sanctioned exception is {@link Translator.rebuildChildren}: when the translated
  * shape genuinely can't map 1:1 onto the existing nodes (ICU branch selection, or
  * a tag the translation added/dropped) there is no stable node to preserve, so it
- * replaces wholesale and accepts the identity loss.
+ * replaces the *content* wholesale and accepts the identity loss. Framework-owned
+ * structural children are still carried across it ({@link isStructuralChild}):
+ * losing a listener degrades the page, losing an anchor crashes the framework.
  *
  * Comments below take this as given and note only the local mechanism.
  */
@@ -32,6 +34,33 @@ import { stripIgnoreSentinels, collectTopLevelIgnored, isIgnoredElement, IGNORED
 // markers (in every branch) can't line up with the evaluated output — the morph
 // isn't reconcilable and falls back to a wholesale rebuild (see invariant above).
 const ICU_PATTERN = /\{\s*\w+\s*,\s*(?:plural|select|selectordinal)\b/;
+
+/**
+ * An empty Text node is never source content — the Observer only collects text that
+ * survives `.trim()`, and an HTML parser never emits a zero-length Text node. It is,
+ * however, exactly what Vue (`hostCreateText('')`) and Svelte use to anchor a
+ * fragment: the pair brackets the fragment's children, and `removeFragment` walks
+ * `nextSibling` from the start anchor until it reaches the end one. Consume such a
+ * node as content — reuse it, reorder across it, or reclaim it — and that walk runs
+ * off the end of the child list into `null.nextSibling`.
+ *
+ * So the reconcile treats these as structural: never pooled, never moved, never
+ * removed (see the node-preservation invariant above).
+ */
+const isAnchorText = (node: Node): boolean => node.nodeType === Node.TEXT_NODE && (node as Text).data === '';
+
+/**
+ * Is `node` a live child that the translated output does not account for and that the
+ * framework may own? Anchor comments, empty-Text fragment anchors and framework-rendered
+ * elements are: they must keep both their identity and their position. The only
+ * unaccounted-for child that is ours to reclaim is a stale content Text node.
+ *
+ * `accountedFor` says which live nodes the output already claims, and is what differs
+ * between the two writers: the reconcile claims every node it reused, the rebuild claims
+ * only the comments it reproduces (it recreates elements and text by definition).
+ */
+const isStructuralChild = (node: Node, accountedFor: (node: Node) => boolean): boolean =>
+  !accountedFor(node) && (node.nodeType !== Node.TEXT_NODE || isAnchorText(node));
 
 export interface TranslatorConfig {
   locale: string;
@@ -555,16 +584,24 @@ export class Translator {
   }
 
   /**
-   * Set a leaf element's visible text in place (node-preservation invariant):
-   * when it already holds a single Text node, rewrite that node's data;
-   * otherwise (empty, or mixed children) fall back to `textContent`.
+   * Set a leaf element's visible text in place (node-preservation invariant). A leaf has
+   * no element children, but it can still hold framework-owned structural nodes — a
+   * `<!--v-if-->` placeholder, a fragment's empty-Text anchors — alongside its text.
+   * `textContent =` would destroy those, so instead rewrite the first content-bearing
+   * Text node in place (keeping its position) and reclaim only the other content Text
+   * nodes. When there is no text to reuse, append one rather than clearing the element.
    */
   private setLeafText(element: Element, text: string): void {
-    const first = element.firstChild;
-    if (first && first.nodeType === Node.TEXT_NODE && first === element.lastChild) {
-      (first as Text).data = text;
+    let target: Text | null = null;
+    for (const child of Array.from(element.childNodes)) {
+      if (child.nodeType !== Node.TEXT_NODE || isAnchorText(child)) continue;
+      if (target === null) target = child as Text;
+      else element.removeChild(child);
+    }
+    if (target) {
+      if (target.data !== text) target.data = text;
     } else {
-      element.textContent = text;
+      element.appendChild(element.ownerDocument.createTextNode(text));
     }
   }
 
@@ -680,18 +717,25 @@ export class Translator {
     ignoredValues: string[]
   ): void {
     const doc = liveParent.ownerDocument;
-    // Reusable existing Text / Comment nodes, consumed in order. Comments are pooled
-    // so a round-tripped comment (masked as a variable) reuses the live node rather
-    // than duplicating it; any live comment the translation doesn't account for is
-    // left untouched by arrangeChildren.
+    // Reusable existing Text / Comment nodes. Text is consumed in document order.
+    // Comments are matched by DATA, never by position: a round-tripped comment (masked
+    // as a variable) must reuse the live comment that actually carries its data, or a
+    // framework anchor comment sitting earlier in the child list gets claimed for it and
+    // dragged out of place. An unmatched live comment stays where it is. Empty Text nodes
+    // are framework fragment anchors, not content ({@link isAnchorText}) — pooling one
+    // would write translated data into it and strand the real text node as a leftover.
     const textPool: Text[] = [];
     const commentPool: Comment[] = [];
     for (const child of liveParent.childNodes) {
+      if (isAnchorText(child)) continue;
       if (child.nodeType === Node.TEXT_NODE) textPool.push(child as Text);
       else if (child.nodeType === Node.COMMENT_NODE) commentPool.push(child as Comment);
     }
     let textIdx = 0;
-    let commentIdx = 0;
+    const takeComment = (data: string): Comment | undefined => {
+      const i = commentPool.findIndex((c) => c.data === data);
+      return i === -1 ? undefined : commentPool.splice(i, 1)[0];
+    };
 
     const ordered: Node[] = [];
 
@@ -709,12 +753,12 @@ export class Translator {
       }
 
       if (t.nodeType !== Node.ELEMENT_NODE) {
-        // The only non-text, non-element node an HTML fragment yields is a comment,
-        // and comments round-trip verbatim (masked as a variable), so a pooled live
-        // comment already holds the right data — reuse it and never clobber its data
-        // (it may be a framework-owned anchor). A comment with no live counterpart is
-        // carried through as the parsed node.
-        ordered.push(commentPool[commentIdx++] ?? t);
+        // The only non-text, non-element node an HTML fragment yields is a comment, and
+        // comments round-trip verbatim (masked as a variable), so the live comment with
+        // the same data is the one this node came from — reuse it, never clobbering any
+        // comment's data. A comment with no live counterpart is carried through as the
+        // parsed node.
+        ordered.push(takeComment((t as Comment).data) ?? t);
         continue;
       }
 
@@ -760,8 +804,15 @@ export class Translator {
    * DOM writes, keeping re-application idempotent.
    */
   private arrangeChildren(parent: Element, ordered: Node[]): void {
+    const claimed = new Set(ordered);
+    const isStructural = (node: Node): boolean => isStructuralChild(node, (n) => claimed.has(n));
+
     let cursor: Node | null = parent.firstChild;
     for (const node of ordered) {
+      // Step over structural children rather than matching against them: insertBefore on
+      // one would push it to the end of the child list — an anchor comment away from the
+      // branch it marks, a fragment anchor out of its [start, end] bracket.
+      while (cursor && isStructural(cursor)) cursor = cursor.nextSibling;
       if (node === cursor) {
         cursor = cursor.nextSibling;
       } else {
@@ -770,11 +821,8 @@ export class Translator {
     }
     while (cursor) {
       const next = cursor.nextSibling;
-      // Reclaim only stale Text nodes. Leftover structural nodes — anchor comments
-      // (<!--v-if-->, fragment markers) or framework-rendered elements — aren't in
-      // `ordered` (the translation accounts only for its own text + inline markers);
-      // removing them would violate the node-preservation invariant, so leave them.
-      if (cursor.nodeType === Node.TEXT_NODE) parent.removeChild(cursor);
+      // Reclaim only stale Text nodes that carried content; leave the structural ones.
+      if (!isStructural(cursor)) parent.removeChild(cursor);
       cursor = next;
     }
   }
@@ -792,8 +840,50 @@ export class Translator {
     variables: VariableInfo[],
     hasIgnored: boolean
   ): void {
+    // Identity loss is sanctioned for content, never for the framework's structural
+    // children: detach them with the rest, then thread them back at the same offset
+    // among the new content. `replaceChildren` doesn't create nodes, so the ones we
+    // re-insert are the very nodes the framework still holds references to.
+    const structural = this.collectStructuralChildren(element, fragment);
     if (hasIgnored) this.restoreIgnoredNodes(element, fragment, variables);
-    element.replaceChildren(...Array.from(fragment.childNodes));
+    const content = Array.from(fragment.childNodes);
+    element.replaceChildren(...content);
+    for (const { node, anchorTo } of structural) {
+      element.insertBefore(node, anchorTo === null ? null : content[anchorTo] ?? null);
+    }
+  }
+
+  /**
+   * The structural children of `element` that `fragment` does not reproduce, each tagged
+   * with the content child it should precede (`null` = the end) — enough to restore its
+   * position once the content is swapped out. A live comment is reproduced when the
+   * fragment carries a comment with the same data (comments round-trip verbatim); the
+   * rest, notably the framework's own anchors, are not, so they must survive the rebuild.
+   */
+  private collectStructuralChildren(element: Element, fragment: DocumentFragment): Array<{ node: Node; anchorTo: number | null }> {
+    const reproduced = new Map<string, number>();
+    for (const n of fragment.childNodes) {
+      if (n.nodeType !== Node.COMMENT_NODE) continue;
+      const { data } = n as Comment;
+      reproduced.set(data, (reproduced.get(data) ?? 0) + 1);
+    }
+    const accountedFor = (node: Node): boolean => {
+      if (node.nodeType !== Node.COMMENT_NODE) return !isAnchorText(node); // content is recreated
+      const left = reproduced.get((node as Comment).data) ?? 0;
+      if (left === 0) return false;
+      reproduced.set((node as Comment).data, left - 1);
+      return true;
+    };
+
+    const found: Array<{ node: Node; contentBefore: number }> = [];
+    let contentBefore = 0;
+    for (const child of element.childNodes) {
+      if (isStructuralChild(child, accountedFor)) found.push({ node: child, contentBefore });
+      else contentBefore++;
+    }
+    // A child that trailed all the content still trails it, however much the translation
+    // grew or shrank the content — pin it to the end rather than to a now-stale index.
+    return found.map(({ node, contentBefore: n }) => ({ node, anchorTo: n === contentBefore ? null : n }));
   }
 
   private parseFragment(html: string): DocumentFragment {

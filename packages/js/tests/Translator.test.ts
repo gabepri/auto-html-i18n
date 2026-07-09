@@ -802,6 +802,256 @@ describe('Translator', () => {
       expect(div.querySelector('[data-i18n-ignore]')).toBe(ignored); // live node preserved
       expect(div.querySelector('b')!.textContent).toBe('extra');     // fallback output correct
     });
+
+    // Vue (and Svelte) bracket a fragment — v-for output, a multi-root component — with a
+    // pair of EMPTY Text nodes, and unmount it by walking `nextSibling` from the start
+    // anchor to the end one. Consume either anchor as content and that walk runs off the
+    // end of the child list, so the framework dereferences `null.nextSibling` on the next
+    // unmount. An empty Text node is never source content (the Observer requires
+    // non-whitespace, and a parser never emits one), so the reconcile steps over them.
+
+    it('preserves a fragment\'s empty-Text anchors and does not reorder reused nodes across them', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Some text <span0>Item</span0>', 'Texto <span0>Elemento</span0>');
+
+      const p = document.createElement('p');
+      p.innerHTML = 'Some text <span>Item</span>';
+      root.appendChild(p);
+      // Bracket the <span> the way Vue brackets a v-for fragment's children.
+      const span = p.querySelector('span')!;
+      const startAnchor = document.createTextNode('');
+      const endAnchor = document.createTextNode('');
+      p.insertBefore(startAnchor, span);
+      p.appendChild(endAnchor);
+      const leadingText = p.firstChild!;
+
+      translator.processText(p, 'Some text <span>Item</span>');
+
+      // Both anchors survive, still empty, still bracketing the span in document order —
+      // otherwise removeFragment(start, end) never reaches `end` and walks into null.
+      expect(Array.from(p.childNodes)).toEqual([leadingText, startAnchor, span, endAnchor]);
+      expect(startAnchor.data).toBe('');
+      expect(endAnchor.data).toBe('');
+      expect(p.querySelector('span')).toBe(span);
+      // ...and the translation still applied.
+      expect(leadingText.textContent).toBe('Texto ');
+      expect(span.textContent).toBe('Elemento');
+    });
+
+    it('does not write translated text into a leading fragment anchor', () => {
+      const { translator, store } = createDeps();
+      store.set('es', '<span0>Item</span0> trailing', '<span0>Elemento</span0> final');
+
+      const p = document.createElement('p');
+      p.innerHTML = '<span>Item</span> trailing';
+      root.appendChild(p);
+      const span = p.querySelector('span')!;
+      const startAnchor = document.createTextNode('');
+      p.insertBefore(startAnchor, span);
+      const trailingText = p.lastChild!;
+
+      translator.processText(p, '<span>Item</span> trailing');
+
+      // The anchor is the first Text child; pooling it would have taken the translated
+      // trailing text and stranded the real Text node as a leftover to be reclaimed.
+      expect(startAnchor.data).toBe('');
+      expect(p.firstChild).toBe(startAnchor);
+      expect(span.textContent).toBe('Elemento');
+      expect(p.lastChild).toBe(trailingText);
+      expect(trailingText.textContent).toBe(' final');
+    });
+
+    it('preserves a v-if comment anchor when setting a leaf\'s text', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Some text', 'Texto');
+
+      // A leaf (no element children) can still hold a framework placeholder comment —
+      // this is `<p>Some text <b v-if="flag">bold</b></p>` with flag false.
+      const p = document.createElement('p');
+      p.appendChild(document.createTextNode('Some text'));
+      const comment = document.createComment('');
+      p.appendChild(comment);
+      root.appendChild(p);
+
+      translator.processText(p, 'Some text');
+
+      expect(p.childNodes.length).toBe(2);
+      expect(p.firstChild!.textContent).toBe('Texto');
+      expect(p.lastChild).toBe(comment); // `textContent =` would have destroyed it
+    });
+
+    it('sets text on a leaf that holds only an anchor, without clearing it', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Some text', 'Texto');
+
+      const p = document.createElement('p');
+      const comment = document.createComment('');
+      p.appendChild(comment);
+      root.appendChild(p);
+
+      translator.processText(p, 'Some text');
+
+      expect(p.textContent).toBe('Texto');
+      expect(p.contains(comment)).toBe(true);
+    });
+
+    it('collapses a leaf\'s extra content Text nodes into the first, keeping structural nodes', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Some text', 'Texto');
+
+      // A leaf can hold several content Text nodes split around a framework anchor.
+      // The translation is one string, so the first node takes it (in place) and the
+      // rest are reclaimed — but the anchor between them is not ours to remove.
+      const p = document.createElement('p');
+      const first = document.createTextNode('Some text');
+      const anchor = document.createComment('v-if');
+      const second = document.createTextNode(' leftover');
+      p.append(first, anchor, second);
+      root.appendChild(p);
+
+      translator.processText(p, 'Some text');
+
+      expect(Array.from(p.childNodes)).toEqual([first, anchor]);
+      expect(first.data).toBe('Texto');   // rewritten in place, identity kept
+      expect(second.parentNode).toBe(null); // stale content node reclaimed
+    });
+
+    // The two shapes observed crashing a real Vue app, both reached through the LEAF path
+    // (no element child anywhere) rather than the aggregation path. A slot rendered through
+    // nested fragments brackets its text with a pair of empty-Text anchors per level, so
+    // `textContent =` on the leaf destroyed four of them in one write.
+
+    it('preserves the anchors of nested fragments bracketing a leaf\'s text', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Preventive', 'Preventivo');
+
+      const button = document.createElement('button');
+      const outerStart = document.createTextNode('');
+      const innerStart = document.createTextNode('');
+      const text = document.createTextNode('Preventive');
+      const innerEnd = document.createTextNode('');
+      const outerEnd = document.createTextNode('');
+      button.append(outerStart, innerStart, text, innerEnd, outerEnd);
+      root.appendChild(button);
+
+      translator.processText(button, 'Preventive');
+
+      // Every anchor keeps its identity AND its position — removeFragment walks from each
+      // start anchor to its end one, so a survivor in the wrong place is no better.
+      expect(Array.from(button.childNodes)).toEqual([outerStart, innerStart, text, innerEnd, outerEnd]);
+      expect(text.data).toBe('Preventivo'); // translated in place, original Text node reused
+      expect(button.textContent).toBe('Preventivo');
+    });
+
+    it('preserves a fragment anchor and a v-if comment bracketing a leaf\'s text', () => {
+      const { translator, store } = createDeps();
+      store.set('es', '{{0}} of {{1}}', '{{0}} de {{1}}'); // the numbers mask to variables
+
+      const span = document.createElement('span');
+      const start = document.createTextNode('');
+      const vIf = document.createComment('');
+      const text = document.createTextNode('1 of 3');
+      const end = document.createTextNode('');
+      span.append(start, vIf, text, end);
+      root.appendChild(span);
+
+      translator.processText(span, '1 of 3');
+
+      expect(Array.from(span.childNodes)).toEqual([start, vIf, text, end]);
+      expect(start.data).toBe('');
+      expect(end.data).toBe('');
+      expect(text.data).toBe('1 de 3');
+    });
+
+    it('preserves fragment anchors through the rebuild fallback (ICU)', () => {
+      const { translator, store } = createDeps();
+      // ICU forces morphInto to bail to rebuildChildren, which replaces the children
+      // wholesale. The anchors must still survive — a rebuild that drops them leaves
+      // the framework walking nextSibling from a detached start anchor into null.
+      store.set('es', '<b0>{{0}}</b0> sheep', '{0, plural, one {<b0># oveja</b0>} other {<b0># ovejas</b0>}}');
+
+      const p = document.createElement('p');
+      p.innerHTML = '<b>5</b> sheep';
+      root.appendChild(p);
+      const b = p.querySelector('b')!;
+      const startAnchor = document.createTextNode('');
+      const endAnchor = document.createTextNode('');
+      p.insertBefore(startAnchor, b);
+      p.appendChild(endAnchor);
+
+      translator.processText(p, '<b>5</b> sheep');
+
+      const kids = Array.from(p.childNodes);
+      expect(kids).toContain(startAnchor);
+      expect(kids).toContain(endAnchor);
+      expect(kids.indexOf(startAnchor)).toBeLessThan(kids.indexOf(endAnchor));
+      expect(startAnchor.data).toBe('');
+      expect(endAnchor.data).toBe('');
+      // ...and the rebuilt output is still correct.
+      expect(p.innerHTML).toBe('<b>5 ovejas</b>');
+    });
+
+    it('preserves an anchor comment through the rebuild fallback (tag set changed)', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'See <a0>docs</a0>', 'Ver <a0>docs</a0> <b>ahora</b>');
+
+      const p = document.createElement('p');
+      p.innerHTML = 'See <a href="/d">docs</a>';
+      const frameworkAnchor = document.createComment('v-if');
+      p.appendChild(frameworkAnchor);
+      root.appendChild(p);
+
+      translator.processText(p, 'See <a href="/d">docs</a>');
+
+      expect(frameworkAnchor.parentNode).toBe(p); // survived replaceChildren
+      expect(p.innerHTML).toBe('Ver <a href="/d">docs</a> <b>ahora</b><!--v-if-->');
+    });
+
+    it('keeps only the unreproduced comment when the rebuild recreates the source comment', () => {
+      const { translator, store } = createDeps();
+      // The rebuild recreates the source's own round-tripped comment, so the live copy is
+      // expendable — but the framework's <!--v-if-->, which nothing reproduces, is not.
+      store.set('es', 'See <a0>docs</a0> {{0}}', 'Ver <a0>docs</a0> <b>ahora</b> {{0}}');
+
+      const p = document.createElement('p');
+      p.innerHTML = 'See <a href="/d">docs</a> <!--src-->';
+      const frameworkAnchor = document.createComment('v-if');
+      p.insertBefore(frameworkAnchor, p.firstChild);
+      root.appendChild(p);
+
+      translator.processText(p, 'See <a href="/d">docs</a> <!--src-->');
+
+      expect(frameworkAnchor.parentNode).toBe(p);
+      expect(p.innerHTML).toBe('<!--v-if-->Ver <a href="/d">docs</a> <b>ahora</b> <!--src-->');
+      // Exactly one 'src' comment — the rebuilt one; the live copy was not also kept.
+      const comments = Array.from(p.childNodes).filter((n) => n.nodeType === Node.COMMENT_NODE);
+      expect(comments.map((c) => (c as Comment).data)).toEqual(['v-if', 'src']);
+    });
+
+    it('does not steal or displace an anchor comment when the source has its own comment', () => {
+      const { translator, store } = createDeps();
+      // The Masker masks comments as opaque variables, so the source comment round-trips
+      // into the translated fragment. The live comment pool must match it by DATA, not by
+      // position — otherwise the framework's <!--v-if--> (which sits earlier in document
+      // order and is NOT part of the source) gets reused for it and dragged out of place.
+      store.set('es', 'Click <a0>here</a0> {{0}}', 'Clic <a0>aqui</a0> {{0}}');
+
+      const p = document.createElement('p');
+      p.innerHTML = 'Click <a href="/x">here</a> <!--src-->';
+      const frameworkAnchor = document.createComment('v-if');
+      p.insertBefore(frameworkAnchor, p.firstChild);
+      root.appendChild(p);
+      const srcComment = Array.from(p.childNodes).find(
+        (n) => n.nodeType === Node.COMMENT_NODE && (n as Comment).data === 'src'
+      ) as Comment;
+
+      translator.processText(p, 'Click <a href="/x">here</a> <!--src-->');
+
+      expect(p.firstChild).toBe(frameworkAnchor); // never moved
+      expect(srcComment.parentNode).toBe(p);      // reused in place, not duplicated
+      expect(p.querySelector('a')!.textContent).toBe('aqui');
+      expect(p.innerHTML).toBe('<!--v-if-->Clic <a href="/x">aqui</a> <!--src-->');
+    });
   });
 
   describe('skipping untranslatable content', () => {
