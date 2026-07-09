@@ -33,7 +33,7 @@ It features **Smart Masking**, **Inline Tag Support**, and **ICU MessageFormat**
 * **Automatic Detection:** Uses `MutationObserver` to watch for new DOM elements or text changes.
 * **Natural Pluralization:** Handles plurals automatically. "1 item" and "5 items" generate distinct translation keys. For words with identical singular/plural forms (e.g., "sheep"), backends can return ICU MessageFormat strings for proper pluralization in any language.
 * **ICU MessageFormat:** Backends can return ICU MessageFormat strings instead of plain translations. The library evaluates `plural`, `select`, and other ICU constructs client-side using variable metadata (type, gender, etc.) auto-detected from the DOM.
-* **Smart Masking:** Automatically identifies dynamic content (numbers and symbols, including date formats like `01/15/2024`) and replaces them with placeholders. Proper nouns and other terms can be masked via the `ignoreWords` config. All-uppercase text is normalized to share a cache key with its lowercase equivalent. Casing is restored after translation.
+* **Smart Masking:** Automatically identifies dynamic content — URLs, email addresses, dates like `01/15/2024`, numbers, and standalone symbols — and replaces them with placeholders, restoring them verbatim after translation. Proper nouns and other terms can be masked via the `ignoreWords` config. All-uppercase text is normalized to share a cache key with its lowercase equivalent. Casing is restored after translation. See [Masked Value Types](#masked-value-types).
 * **Rich Context Hook:** The translation callback receives the original text, masked text, and extracted variables, giving your backend (or LLM) full context.
 * **Attribute Preservation:** Automatically strips attributes (like `href`, `class`) from tags before translation and re-injects them.
 * **Inline Tag Support:** Intelligently handles HTML tags like `<a>`, `<b>`, or `<span>` as part of the sentence structure.
@@ -402,12 +402,31 @@ i18n.setIgnoreWords(['NewBrand', { word: 'Jane', meta: { gender: 'female' } }]);
 
 The library watches the DOM for text changes. It intelligently masks variables and handles inline HTML to create a normalized "Cache Key".
 
+#### Masked Value Types
+
+Before a string is translated, recognized dynamic values are replaced with `{{N}}` placeholders and restored verbatim afterward. **They are never sent to your translation backend and never altered.** The masker matches these types in priority order:
+
+| # | Type | Matches | Example |
+|---|------|---------|---------|
+| 1 | `ignoreWord` | Any term registered via the `ignoreWords` config | `Acme`, `Mary` |
+| 2 | `url` | `http://` and `https://` URLs | `https://acme.com/x?y=1` |
+| 3 | `email` | Email addresses | `mary@acme.com` |
+| 4 | `date` | Common numeric date formats | `01/15/2024`, `2024-01-15` |
+| 5 | `number` | Integers and decimals, including negatives | `42`, `-3.5` |
+| 6 | `symbol` | Standalone currency and symbol characters | `$`, `€`, `©`, `™`, `%` |
+
+Order matters: URLs and emails are matched before dates and numbers so that `https://acme.com/2024` and `mary@acme.com` mask as a single unit instead of fragmenting.
+
+Additionally, **any string containing no Unicode letter is never collected at all** — a bare `42`, `$1,299.00`, or `—` is skipped outright rather than masked.
+
+> **You do not need `data-i18n-ignore` for any of the above.** That attribute is for *letter-bearing* content the masker cannot recognize by shape — personal names, street addresses, user-authored prose. Marking an email or a number is redundant.
+
 The library uses three data attributes during translation (all configurable via options):
 
 1.  **`data-i18n-original`:** Stores the original text when a translation is applied. The observer checks this attribute to skip nodes it has already translated, preventing infinite loops. It also enables `setLocale()` to re-translate from the original source.
 2.  **`data-i18n-pending`:** Added to elements while a translation request is in-flight. Removed once the translation is applied. Use this for CSS-based FOUC mitigation (e.g., `[data-i18n-pending] { visibility: hidden; }`).
 3.  **`data-i18n-key`:** *(Optional, user-provided)* If present on an element, its value is used as the cache key instead of the computed masked string. This is useful when automatic masking produces an ambiguous key, or when you want to share a translation across elements with different source text.
-4.  **`data-i18n-ignore`:** *(Optional, user-provided)* If present on an element, the observer will completely skip that element and its entire subtree — no text, attributes, or mutations will be processed. Useful for excluding regions that contain sensitive data, code snippets, or content that should never be translated.
+4.  **`data-i18n-ignore`:** *(Optional, user-provided)* If present on an element, the observer will completely skip that element and its entire subtree — no text, attributes, or mutations will be processed. Useful for excluding regions that contain sensitive data, code snippets, or content that should never be translated. Reach for this only when the content is *letter-bearing and unrecognizable by shape* — see [Masked Value Types](#masked-value-types), since URLs, emails, dates, numbers, and symbols are already protected automatically.
 5.  **`data-i18n-scope`:** *(Optional, user-provided)* Defines a translation scope that inherits down the DOM tree. When the same masked string needs different translations in different parts of the page, use this attribute to disambiguate. See [Scoped Translations](#-scoped-translations).
 
 **Example:**
