@@ -249,7 +249,9 @@ describe('Observer', () => {
       root.appendChild(p);
       await waitForMutations();
 
-      expect(onTextFound).toHaveBeenCalledWith(p, 'New text');
+      // Leaf text units carry the specific Text node they live in — a parent can hold
+      // several, and each is its own unit.
+      expect(onTextFound).toHaveBeenCalledWith(p, 'New text', p.firstChild);
 
       observer.stop();
     });

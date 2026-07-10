@@ -69,6 +69,8 @@ interface PendingNode {
   attrName?: string;
   isHtml: boolean;
   scope?: string;
+  /** Set when the unit is scoped to one leaf Text node rather than the whole element. */
+  textNode?: Text;
 }
 
 export class Translator {
@@ -90,6 +92,14 @@ export class Translator {
   // be indistinguishable from a framework fragment anchor and skipped forever. See
   // isAnchorText/setTextData.
   private emptiedByUs = new WeakSet<Text>();
+  // A non-aggregatable parent holds one translation unit PER direct text node
+  // (`<p>one<br>two</p>` is two units), so unit state can't hang off the element or the
+  // second apply overwrites the first node and reclaims the rest. These are the
+  // element-keyed `lastApplied` / `data-i18n-original` pair, per Text node.
+  // `ownsText` records that at least one of an element's units is ours, which is what
+  // tells an externally-rewritten node apart from server-rendered content.
+  private textUnits = new WeakMap<Text, { original: string; lastApplied: string }>();
+  private ownsText = new WeakSet<Element>();
   // Value-based, locale-scoped echo guard. Maps the normalized (masked) form of
   // every output we've actually written to the DOM -> the source text it came
   // from, per locale. Unlike `lastApplied` (keyed on element identity + exact
@@ -124,19 +134,32 @@ export class Translator {
     return isHtml ? this.serializeAggregate(element) : (element.textContent ?? '');
   }
 
-  processText(element: Element, originalText: string): void {
-    const last = this.lastApplied.get(element);
+  /**
+   * `textNode`, when given, scopes the unit to that leaf Text node rather than to the
+   * element — the element may hold several (`<p>one<br>two</p>`). Omitted for aggregated
+   * (`isHtml`) units, and by direct callers treating the element's text as one unit.
+   */
+  processText(element: Element, originalText: string, textNode?: Text): void {
+    const last = textNode ? this.textUnits.get(textNode)?.lastApplied : this.lastApplied.get(element);
     if (last !== undefined && originalText === last) {
       return; // echo of our own write
     }
     if (element.hasAttribute(this.config.originalAttribute)) {
-      if (last === undefined) {
+      // The attribute marks the element, but a node unit's ownership is per node: a
+      // sibling text node we already translated must not make THIS one look
+      // server-rendered, or it would never be translated at all.
+      const ours = textNode ? this.ownsText.has(element) : last !== undefined;
+      if (!ours) {
         return; // translated content we didn't write (e.g. server-rendered)
       }
       // Externally rewritten after we translated it — the marker is stale;
       // treat the incoming text as fresh source
-      element.removeAttribute(this.config.originalAttribute);
-      this.lastApplied.delete(element);
+      if (textNode) {
+        this.textUnits.delete(textNode);
+      } else {
+        element.removeAttribute(this.config.originalAttribute);
+        this.lastApplied.delete(element);
+      }
     }
 
     const keyOverride = element.getAttribute(this.config.keyAttribute);
@@ -160,9 +183,14 @@ export class Translator {
     // and strongly preferable to leaking target-language rows.
     const echoedOriginal = this.appliedOutputs.get(this.config.locale)?.get(maskResult.masked);
     if (echoedOriginal !== undefined) {
-      element.setAttribute(this.config.originalAttribute, echoedOriginal);
+      if (textNode) {
+        this.textUnits.set(textNode, { original: echoedOriginal, lastApplied: textNode.data });
+        this.syncOriginalAttribute(element);
+      } else {
+        element.setAttribute(this.config.originalAttribute, echoedOriginal);
+        this.lastApplied.set(element, this.currentContent(element, isHtml));
+      }
       element.removeAttribute(this.config.pendingAttribute);
-      this.lastApplied.set(element, this.currentContent(element, isHtml));
       return;
     }
 
@@ -174,7 +202,7 @@ export class Translator {
     if (entry && entry.status === 'resolved' && entry.value !== null) {
       const resolved = resolveEntry(entry.value, scope);
       if (resolved) {
-        this.applyTranslation(element, resolved, maskResult, originalText, isHtml, maskResult.casePattern);
+        this.applyTranslation(element, resolved, maskResult, originalText, isHtml, maskResult.casePattern, textNode);
       }
       return;
     }
@@ -185,13 +213,27 @@ export class Translator {
     element.setAttribute(this.config.pendingAttribute, '');
 
     if (entry && (entry.status === 'pending' || entry.status === 'reported')) {
-      this.trackPendingNode(cacheKey, element, maskResult, originalText, isHtml, scope);
+      this.trackPendingNode(cacheKey, element, maskResult, originalText, isHtml, scope, textNode);
       return;
     }
 
     this.store.markPending(this.config.locale, cacheKey);
-    this.trackPendingNode(cacheKey, element, maskResult, originalText, isHtml, scope);
+    this.trackPendingNode(cacheKey, element, maskResult, originalText, isHtml, scope, textNode);
     this.queue.enqueue(item);
+  }
+
+  /**
+   * Point `data-i18n-original` at the first node unit's original. The attribute is per
+   * element but an element can hold several node units, so it can only ever name one of
+   * them; {@link textUnits} holds each node's exact original. Recomputed from the live
+   * nodes on every apply so an externally-rewritten unit doesn't leave a stale value
+   * behind. Also marks the element as ours, which is what tells an external rewrite apart
+   * from server-rendered content.
+   */
+  private syncOriginalAttribute(element: Element): void {
+    this.ownsText.add(element);
+    const first = this.nodeUnitsOf(element)[0];
+    if (first) element.setAttribute(this.config.originalAttribute, first.original);
   }
 
   processAttribute(element: Element, attr: string, originalValue: string): void {
@@ -276,6 +318,7 @@ export class Translator {
 
     for (const node of pending) {
       if (!node.element.isConnected) continue;
+      if (node.textNode && !node.textNode.isConnected) continue;
 
       const resolved = resolveEntry(entry.value, node.scope);
       if (!resolved) continue;
@@ -291,7 +334,7 @@ export class Translator {
       } else {
         // Skip if the content changed since it was tracked — the newer
         // content has its own translation cycle
-        const current = this.currentContent(node.element, node.isHtml);
+        const current = node.textNode ? node.textNode.data : this.currentContent(node.element, node.isHtml);
         if (current !== node.snapshot) continue;
 
         this.applyTranslation(node.element, resolved, {
@@ -301,11 +344,61 @@ export class Translator {
           casePattern: node.casePattern,
           leadingWhitespace: node.leadingWhitespace,
           trailingWhitespace: node.trailingWhitespace,
-        }, node.originalText, node.isHtml, node.casePattern);
+        }, node.originalText, node.isHtml, node.casePattern, node.textNode);
       }
     }
 
     this.pendingNodes.delete(cacheKey);
+  }
+
+  /**
+   * The element's node-scoped units, each with the original we recorded for it. Empty for
+   * an aggregated element, and for one whose `data-i18n-original` we didn't write
+   * (server-rendered) — both of which are handled as a single element-wide unit.
+   */
+  private nodeUnitsOf(element: Element): Array<{ node: Text; original: string; lastApplied: string }> {
+    const units: Array<{ node: Text; original: string; lastApplied: string }> = [];
+    for (const child of element.childNodes) {
+      if (child.nodeType !== Node.TEXT_NODE) continue;
+      const rec = this.textUnits.get(child as Text);
+      if (rec) units.push({ node: child as Text, ...rec });
+    }
+    return units;
+  }
+
+  /** Re-apply one unit (element-wide, or scoped to `textNode`) under the current locale. */
+  private retranslateUnit(element: Element, originalText: string, isHtml: boolean, textNode?: Text): void {
+    const keyOverride = element.getAttribute(this.config.keyAttribute);
+    const maskResult = this.masker.mask(originalText);
+
+    if (!keyOverride && !hasTranslatableContent(maskResult.masked)) {
+      return;
+    }
+
+    const cacheKey = keyOverride ?? maskResult.masked;
+    const scope = this.resolveScope(element);
+
+    // Skip units whose content changed since we last wrote them — the
+    // marker is stale and re-applying would clobber the newer content
+    const lastKnown = textNode ? this.textUnits.get(textNode)?.lastApplied : this.lastApplied.get(element);
+    const current = textNode ? textNode.data : this.currentContent(element, isHtml);
+    if (lastKnown !== undefined && current !== lastKnown) {
+      return;
+    }
+
+    const entry = this.store.get(this.config.locale, cacheKey);
+    if (entry && entry.status === 'resolved' && entry.value !== null) {
+      const resolved = resolveEntry(entry.value, scope);
+      if (resolved) {
+        this.applyTranslation(element, resolved, maskResult, originalText, isHtml, maskResult.casePattern, textNode);
+      }
+    } else if (!entry) {
+      const item = this.buildItem(cacheKey, originalText, maskResult.variables, element, 'text', scope);
+      element.setAttribute(this.config.pendingAttribute, '');
+      this.store.markPending(this.config.locale, cacheKey);
+      this.trackPendingNode(cacheKey, element, maskResult, originalText, isHtml, scope, textNode);
+      this.queue.enqueue(item);
+    }
   }
 
   retranslateAll(): void {
@@ -313,41 +406,18 @@ export class Translator {
       `[${this.config.originalAttribute}]`
     );
     for (const element of elements) {
+      // An element may hold several node-scoped units, and the attribute can only name
+      // one. When the units are ours, they — not the attribute — are the source of truth;
+      // a unit whose node the framework replaced simply isn't there any more, and
+      // re-applying the attribute's original over the new content would clobber it.
+      if (this.ownsText.has(element)) {
+        for (const unit of this.nodeUnitsOf(element)) this.retranslateUnit(element, unit.original, false, unit.node);
+        continue;
+      }
+
       const originalText = element.getAttribute(this.config.originalAttribute);
       if (!originalText) continue;
-
-      const keyOverride = element.getAttribute(this.config.keyAttribute);
-      const isHtml = /<[^>]+>/.test(originalText);
-      const maskResult = this.masker.mask(originalText);
-
-      if (!keyOverride && !hasTranslatableContent(maskResult.masked)) {
-        continue;
-      }
-
-      const cacheKey = keyOverride ?? maskResult.masked;
-      const scope = this.resolveScope(element);
-
-      // Skip elements whose content changed since we last wrote them — the
-      // marker is stale and re-applying would clobber the newer content
-      const lastKnown = this.lastApplied.get(element);
-      const current = this.currentContent(element, isHtml);
-      if (lastKnown !== undefined && current !== lastKnown) {
-        continue;
-      }
-
-      const entry = this.store.get(this.config.locale, cacheKey);
-      if (entry && entry.status === 'resolved' && entry.value !== null) {
-        const resolved = resolveEntry(entry.value, scope);
-        if (resolved) {
-          this.applyTranslation(element, resolved, maskResult, originalText, isHtml, maskResult.casePattern);
-        }
-      } else if (!entry) {
-        const item = this.buildItem(cacheKey, originalText, maskResult.variables, element, 'text', scope);
-        element.setAttribute(this.config.pendingAttribute, '');
-        this.store.markPending(this.config.locale, cacheKey);
-        this.trackPendingNode(cacheKey, element, maskResult, originalText, isHtml, scope);
-        this.queue.enqueue(item);
-      }
+      this.retranslateUnit(element, originalText, /<[^>]+>/.test(originalText));
     }
 
     // Re-translate attributes with original-tracking data
@@ -408,22 +478,33 @@ export class Translator {
       `[${this.config.originalAttribute}]`
     );
     for (const element of elements) {
-      const originalText = element.getAttribute(this.config.originalAttribute);
-      if (originalText) {
-        const isHtml = /<[^>]+>/.test(originalText);
-        // Only restore if the content is still what we wrote — otherwise the
-        // element was rewritten since and the newer content wins
-        const lastKnown = this.lastApplied.get(element);
-        const current = this.currentContent(element, isHtml);
-        if (lastKnown === undefined || current === lastKnown) {
-          if (isHtml) {
-            // Symmetric to the apply path: morph the original back on in place
-            // (node-preservation invariant). The stored original is the canonical
-            // sentinel-bracketed form, so re-masking reproduces the same
-            // markers/variables morphInto used on apply.
-            this.morphOriginalInto(element, originalText);
-          } else {
-            this.setLeafText(element, originalText);
+      if (this.ownsText.has(element)) {
+        // Each node carries its own original; restore only the nodes still showing what
+        // we wrote. A unit the framework replaced is simply absent, and its newer content
+        // stays — the attribute's original is stale for it.
+        for (const unit of this.nodeUnitsOf(element)) {
+          if (unit.node.data === unit.lastApplied) this.setTextData(unit.node, unit.original);
+          this.textUnits.delete(unit.node);
+        }
+        this.ownsText.delete(element);
+      } else {
+        const originalText = element.getAttribute(this.config.originalAttribute);
+        if (originalText) {
+          const isHtml = /<[^>]+>/.test(originalText);
+          // Only restore if the content is still what we wrote — otherwise the
+          // element was rewritten since and the newer content wins
+          const lastKnown = this.lastApplied.get(element);
+          const current = this.currentContent(element, isHtml);
+          if (lastKnown === undefined || current === lastKnown) {
+            if (isHtml) {
+              // Symmetric to the apply path: morph the original back on in place
+              // (node-preservation invariant). The stored original is the canonical
+              // sentinel-bracketed form, so re-masking reproduces the same
+              // markers/variables morphInto used on apply.
+              this.morphOriginalInto(element, originalText);
+            } else {
+              this.setLeafText(element, originalText);
+            }
           }
         }
       }
@@ -532,7 +613,8 @@ export class Translator {
     maskResult: MaskResult,
     originalText: string,
     isHtml: boolean,
-    casePattern: CasePattern
+    casePattern: CasePattern,
+    textNode?: Text
   ): void {
     const unmasked = this.masker.unmask(value, maskResult.variables, maskResult.tagAttributes, this.config.locale, originalText);
     const output = maskResult.leadingWhitespace + this.masker.applyCasePattern(unmasked, casePattern) + maskResult.trailingWhitespace;
@@ -550,14 +632,20 @@ export class Translator {
       // Record the canonical serialization, which is what mutation callbacks
       // will echo back
       this.lastApplied.set(element, this.serializeAggregate(element));
+    } else if (textNode) {
+      // Node-scoped unit: write only this Text node, leaving the element's other units
+      // (and their nodes) alone.
+      this.setTextData(textNode, output);
+      this.textUnits.set(textNode, { original: originalText, lastApplied: output });
     } else {
       this.setLeafText(element, output);
       this.lastApplied.set(element, output);
     }
 
-    element.setAttribute(this.config.originalAttribute, originalText);
+    if (textNode) this.syncOriginalAttribute(element);
+    else element.setAttribute(this.config.originalAttribute, originalText);
     element.removeAttribute(this.config.pendingAttribute);
-    this.recordAppliedOutput(this.lastApplied.get(element)!, originalText);
+    this.recordAppliedOutput(textNode ? output : this.lastApplied.get(element)!, originalText);
   }
 
   /**
@@ -1025,7 +1113,8 @@ export class Translator {
     maskResult: MaskResult,
     originalText: string,
     isHtml: boolean,
-    scope?: string
+    scope?: string,
+    textNode?: Text
   ): void {
     this.addToPendingSet(cacheKey, {
       element,
@@ -1035,9 +1124,10 @@ export class Translator {
       leadingWhitespace: maskResult.leadingWhitespace,
       trailingWhitespace: maskResult.trailingWhitespace,
       originalText,
-      snapshot: this.currentContent(element, isHtml),
+      snapshot: textNode ? textNode.data : this.currentContent(element, isHtml),
       isHtml,
       scope,
+      textNode,
     });
   }
 

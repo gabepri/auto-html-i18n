@@ -262,6 +262,81 @@ describe('Integration Tests', () => {
     });
   });
 
+  // A parent that can't aggregate (a non-inline child anywhere below disqualifies it)
+  // still holds one translation unit per direct text node. Each unit must land on its own
+  // Text node: keying them all on the parent element makes the last translation overwrite
+  // the first node and reclaim the rest, destroying visible content.
+  describe('multiple text nodes under one non-aggregatable parent', () => {
+    it('translates each text node around a <br> independently', () => {
+      root.innerHTML = '<p>Hello there<br>Goodbye now</p>';
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: async () => null,
+        rootElement: root,
+      });
+      i18n.setCache('es', { 'Hello there': 'Hola alli', 'Goodbye now': 'Adios ahora' });
+      i18n.start();
+
+      const p = root.querySelector('p')!;
+      expect(Array.from(p.childNodes).map((n) => n.nodeName + ':' + n.textContent))
+        .toEqual(['#text:Hola alli', 'BR:', '#text:Adios ahora']);
+      i18n.stop();
+    });
+
+    it('translates text nodes on either side of a form control', () => {
+      root.innerHTML = '<label>Hello there<input>Goodbye now</label>';
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: async () => null,
+        rootElement: root,
+      });
+      i18n.setCache('es', { 'Hello there': 'Hola alli', 'Goodbye now': 'Adios ahora' });
+      i18n.start();
+
+      expect(root.querySelector('label')!.textContent).toBe('Hola alliAdios ahora');
+      expect(root.querySelector('input')).not.toBe(null);
+      i18n.stop();
+    });
+
+    it('reverts every text node, not just the first', () => {
+      root.innerHTML = '<p>Hello there<br>Goodbye now</p>';
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: async () => null,
+        rootElement: root,
+      });
+      i18n.setCache('es', { 'Hello there': 'Hola alli', 'Goodbye now': 'Adios ahora' });
+      i18n.start();
+      expect(root.querySelector('p')!.textContent).toBe('Hola alliAdios ahora');
+
+      i18n.stop(true); // revert
+
+      expect(root.innerHTML).toBe('<p>Hello there<br>Goodbye now</p>');
+    });
+
+    it('re-translates every text node on a locale switch', () => {
+      root.innerHTML = '<p>Hello there<br>Goodbye now</p>';
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: async () => null,
+        rootElement: root,
+      });
+      i18n.setCache('es', { 'Hello there': 'Hola alli', 'Goodbye now': 'Adios ahora' });
+      i18n.setCache('fr', { 'Hello there': 'Bonjour la', 'Goodbye now': 'Au revoir' });
+      i18n.start();
+      expect(root.querySelector('p')!.textContent).toBe('Hola alliAdios ahora');
+
+      i18n.setLocale('fr');
+
+      expect(root.querySelector('p')!.textContent).toBe('Bonjour laAu revoir');
+      i18n.stop();
+    });
+  });
+
   describe('attribute re-translation prevention', () => {
     it('should translate attribute exactly once (no re-translation loop)', async () => {
       const onMissing = vi.fn().mockResolvedValue({

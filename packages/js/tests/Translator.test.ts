@@ -1100,6 +1100,34 @@ describe('Translator', () => {
       expect(text.data).toBe('3 articulos');
     });
 
+    it('recognizes its own output on a node unit whose Text node the framework replaced', () => {
+      const { translator, store, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+      store.set('es', 'Hello', 'Hola');
+
+      const p = document.createElement('p');
+      p.appendChild(document.createTextNode('Hello'));
+      root.appendChild(p);
+
+      translator.processText(p, 'Hello', p.firstChild as Text);
+      expect(p.textContent).toBe('Hola');
+
+      // The framework re-creates the node carrying OUR translation as its text. It has no
+      // unit record, so only the value-based guard can tell it isn't a fresh source string.
+      const replacement = document.createTextNode('Hola');
+      p.replaceChild(replacement, p.firstChild!);
+
+      translator.processText(p, 'Hola', replacement);
+
+      expect(enqueueSpy).not.toHaveBeenCalled();          // never reported as new source
+      expect(p.getAttribute('data-i18n-original')).toBe('Hello');
+      expect(p.hasAttribute('data-i18n-pending')).toBe(false);
+
+      // ...and the re-established unit reverts to the right original.
+      translator.revertAll();
+      expect(p.textContent).toBe('Hello');
+    });
+
     it('still treats a framework-emptied Text node as an anchor', () => {
       const { translator, store } = createDeps();
       store.set('es', 'Some text', 'Texto');

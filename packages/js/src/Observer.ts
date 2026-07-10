@@ -54,7 +54,7 @@ export class Observer {
 
     // Collect all items first, then fire callbacks.
     // This prevents DOM mutations (from sync translations) from disrupting the TreeWalker.
-    const textItems: Array<{ element: Element; text: string }> = [];
+    const textItems: Array<{ element: Element; text: string; textNode?: Text }> = [];
     const attrItems: Array<{ element: Element; attr: string; value: string }> = [];
 
     if (root instanceof Element) {
@@ -89,7 +89,7 @@ export class Observer {
       this.config.onAttributeFound(item.element, item.attr, item.value);
     }
     for (const item of textItems) {
-      this.config.onTextFound(item.element, item.text);
+      this.config.onTextFound(item.element, item.text, item.textNode);
     }
   }
 
@@ -141,7 +141,7 @@ export class Observer {
   private processSubtreeForMutation(element: Element): void {
     // Collect all items first, then fire callbacks.
     // This prevents DOM mutations (from sync translations) from disrupting the TreeWalker.
-    const textItems: Array<{ element: Element; text: string }> = [];
+    const textItems: Array<{ element: Element; text: string; textNode?: Text }> = [];
     const attrItems: Array<{ element: Element; attr: string; value: string }> = [];
 
     this.collectElementAttrs(element, attrItems);
@@ -174,7 +174,7 @@ export class Observer {
       this.config.onAttributeFound(item.element, item.attr, item.value);
     }
     for (const item of textItems) {
-      this.config.onTextFound(item.element, item.text);
+      this.config.onTextFound(item.element, item.text, item.textNode);
     }
   }
 
@@ -198,7 +198,7 @@ export class Observer {
       return;
     }
 
-    this.config.onTextFound(parent, text);
+    this.config.onTextFound(parent, text, textNode);
   }
 
   private collectElementAttrs(
@@ -215,7 +215,7 @@ export class Observer {
 
   private collectTextNode(
     textNode: Text,
-    out: Array<{ element: Element; text: string }>
+    out: Array<{ element: Element; text: string; textNode?: Text }>
   ): void {
     const text = textNode.textContent;
     if (!text || !text.trim()) return;
@@ -236,7 +236,7 @@ export class Observer {
       return;
     }
 
-    out.push({ element: parent, text });
+    out.push({ element: parent, text, textNode });
   }
 
   /**

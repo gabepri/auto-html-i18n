@@ -133,7 +133,8 @@ export interface ObserverConfig {
   pendingAttribute: string;
   keyAttribute: string;
   ignoreAttribute: string;
-  onTextFound: (element: Element, text: string) => void;
+  /** `textNode` is the specific leaf Text node the unit lives in; absent for aggregated (innerHTML) units. */
+  onTextFound: (element: Element, text: string, textNode?: Text) => void;
   onAttributeFound: (element: Element, attr: string, value: string) => void;
 }
 

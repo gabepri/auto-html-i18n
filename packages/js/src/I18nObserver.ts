@@ -126,7 +126,7 @@ export class I18nObserver {
       pendingAttribute: config.pendingAttribute,
       keyAttribute: config.keyAttribute,
       ignoreAttribute: config.ignoreAttribute,
-      onTextFound: (element, text) => this.translator.processText(element, text),
+      onTextFound: (element, text, textNode) => this.translator.processText(element, text, textNode),
       onAttributeFound: (element, attr, value) => this.translator.processAttribute(element, attr, value),
     });
 
