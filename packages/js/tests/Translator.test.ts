@@ -1052,6 +1052,230 @@ describe('Translator', () => {
       expect(p.querySelector('a')!.textContent).toBe('aqui');
       expect(p.innerHTML).toBe('<!--v-if-->Clic <a href="/x">aqui</a> <!--src-->');
     });
+
+    // `data === ''` alone can't tell a framework anchor from a Text node WE emptied.
+    // An ICU arm that renders nothing produces exactly that, and misreading our own node
+    // as an anchor means it is never reused and never reclaimed — it is skipped forever
+    // while each re-apply appends another node beside it.
+
+    it('reuses the Text node it emptied when the translation renders nothing (ICU zero arm)', () => {
+      const { translator, store } = createDeps();
+      store.set('es', '{{0}} items', '{0, plural, =0 {} other {# articulos}}');
+
+      const p = document.createElement('p');
+      p.textContent = '0 items';
+      root.appendChild(p);
+      const text = p.firstChild as Text;
+
+      translator.processText(p, '0 items');
+      expect(p.childNodes.length).toBe(1);
+      expect(p.firstChild).toBe(text); // emptied in place, not replaced
+      expect(text.data).toBe('');
+
+      translator.retranslateAll();
+
+      // The emptied node is still ours: reused, not skipped as an anchor and shadowed
+      // by a freshly-appended sibling.
+      expect(p.childNodes.length).toBe(1);
+      expect(p.firstChild).toBe(text);
+    });
+
+    it('recovers a Text node it emptied once the translation renders again', () => {
+      const { translator, store } = createDeps();
+      store.set('es', '{{0}} items', '{0, plural, =0 {} other {# articulos}}');
+
+      const p = document.createElement('p');
+      p.textContent = '0 items';
+      root.appendChild(p);
+      const text = p.firstChild as Text;
+
+      translator.processText(p, '0 items');
+      expect(text.data).toBe('');
+
+      // Same element, new source: the node we emptied must take the text back.
+      translator.processText(p, '3 items');
+
+      expect(p.childNodes.length).toBe(1);
+      expect(p.firstChild).toBe(text);
+      expect(text.data).toBe('3 articulos');
+    });
+
+    it('still treats a framework-emptied Text node as an anchor', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Some text', 'Texto');
+
+      const p = document.createElement('p');
+      const anchor = document.createTextNode(''); // the framework's, never written by us
+      const text = document.createTextNode('Some text');
+      p.append(anchor, text);
+      root.appendChild(p);
+
+      translator.processText(p, 'Some text');
+
+      expect(Array.from(p.childNodes)).toEqual([anchor, text]);
+      expect(anchor.data).toBe('');
+      expect(text.data).toBe('Texto');
+    });
+  });
+
+  // Provenance (`emptiedByUs`) is read by four consumers: setLeafText, the reconcile's text
+  // pool, and — via isStructuralChild — arrangeChildren and collectStructuralChildren.
+  // Getting it wrong is silently destructive in BOTH directions, so each test below is
+  // written to fail if isAnchorText were `data === ''` alone (a node we blanked is mistaken
+  // for an anchor: skipped forever, shadowed by a fresh sibling on each re-apply) or if it
+  // always returned false (a real anchor is reused/reordered/reclaimed, so the framework's
+  // next removeFragment walks nextSibling off the end of the child list).
+  describe('empty-Text provenance across the reconcile, rebuild and revert paths', () => {
+    const ICU_ZERO = '{0, plural, =0 {} other {# articulos}}';
+
+    /** Empty `p`'s single Text node the way an ICU zero arm does, and hand it back. */
+    function emptyTheTextNode(translator: Translator, p: HTMLElement): Text {
+      const node = p.firstChild as Text;
+      translator.processText(p, '0 items');
+      expect(node.data).toBe(''); // engine-emptied, still in place
+      return node;
+    }
+
+    it('pools and reuses an engine-emptied Text node when reconciling an aggregated unit', () => {
+      const { translator, store } = createDeps();
+      store.set('es', '{{0}} items', ICU_ZERO);
+      store.set('es', '<b0>bold</b0> tail', '<b0>negrita</b0> cola');
+
+      const p = document.createElement('p');
+      p.textContent = '0 items';
+      root.appendChild(p);
+      const emptied = emptyTheTextNode(translator, p);
+
+      // The element becomes an aggregation target: inline markup plus direct text arrives
+      // around the node we blanked.
+      const b = document.createElement('b');
+      b.textContent = 'bold';
+      p.append(b, document.createTextNode(' tail'));
+
+      translator.processText(p, '<b>bold</b> tail');
+
+      // The blanked node is ours, so it is drawn from the text pool and refilled in place —
+      // not skipped as structural and shadowed by a newly created sibling.
+      expect(Array.from(p.childNodes)).toEqual([b, emptied]);
+      expect(emptied.data).toBe(' cola');
+      expect(b.textContent).toBe('negrita');
+    });
+
+    it('never pools a framework anchor for content, and never reclaims it as a leftover', () => {
+      const { translator, store } = createDeps();
+      store.set('es', '<b0>bold</b0> tail', '<b0>negrita</b0> cola');
+
+      const p = document.createElement('p');
+      p.innerHTML = '<b>bold</b> tail';
+      const b = p.querySelector('b')!;
+      const tail = p.lastChild as Text;
+      const anchor = document.createTextNode(''); // the framework's
+      p.insertBefore(anchor, b);
+      root.appendChild(p);
+
+      translator.processText(p, '<b>bold</b> tail');
+
+      // Anchor keeps identity AND position; the real text node took the translation.
+      expect(Array.from(p.childNodes)).toEqual([anchor, b, tail]);
+      expect(anchor.data).toBe('');
+      expect(tail.data).toBe(' cola');
+    });
+
+    it('rebuilds over an engine-emptied node but carries a framework anchor across', () => {
+      const { translator, store } = createDeps();
+      store.set('es', '{{0}} items', ICU_ZERO);
+      // ICU can't map markers 1:1, so this forces the replaceChildren rebuild fallback.
+      store.set('es', '<b0>{{0}}</b0> sheep', '{0, plural, one {<b0># oveja</b0>} other {<b0># ovejas</b0>}}');
+
+      const p = document.createElement('p');
+      p.textContent = '0 items';
+      root.appendChild(p);
+      const emptied = emptyTheTextNode(translator, p);
+
+      const anchor = document.createTextNode(''); // the framework's
+      p.insertBefore(anchor, emptied);
+      const b = document.createElement('b');
+      b.textContent = '5';
+      p.append(b, document.createTextNode(' sheep'));
+
+      translator.processText(p, '<b>5</b> sheep');
+
+      // Ours is replaceable content and goes; the anchor survives replaceChildren in place.
+      expect(emptied.parentNode).toBe(null);
+      expect(p.firstChild).toBe(anchor);
+      expect(anchor.data).toBe('');
+      expect(p.innerHTML).toBe('<b>5 ovejas</b>');
+    });
+
+    it('does not mistake a Text node it created empty for a framework anchor', () => {
+      const { translator, store } = createDeps();
+      store.set('es', '{{0}} items', ICU_ZERO);
+
+      // No text to reuse, so setLeafText mints one via createText — with empty data.
+      const p = document.createElement('p');
+      const comment = document.createComment('v-if');
+      p.appendChild(comment);
+      root.appendChild(p);
+
+      translator.processText(p, '0 items');
+
+      expect(p.childNodes.length).toBe(2);
+      const minted = p.lastChild as Text;
+      expect(minted.nodeType).toBe(Node.TEXT_NODE);
+      expect(minted.data).toBe('');
+
+      // Re-apply with a rendering translation: the minted node is ours, so it takes the
+      // text rather than being skipped and shadowed.
+      translator.processText(p, '3 items');
+
+      expect(Array.from(p.childNodes)).toEqual([comment, minted]);
+      expect(minted.data).toBe('3 articulos');
+    });
+
+    it('tracks provenance across blank -> fill -> blank, leaving a real anchor untouched', () => {
+      const { translator, store } = createDeps();
+      store.set('es', '{{0}} items', ICU_ZERO);
+
+      const p = document.createElement('p');
+      const anchor = document.createTextNode(''); // the framework's, never written by us
+      const text = document.createTextNode('0 items');
+      p.append(anchor, text);
+      root.appendChild(p);
+
+      translator.processText(p, '0 items'); // blank
+      expect(text.data).toBe('');
+      expect(Array.from(p.childNodes)).toEqual([anchor, text]);
+
+      translator.processText(p, '3 items'); // fill — the blanked node must be reused
+      expect(text.data).toBe('3 articulos');
+      expect(Array.from(p.childNodes)).toEqual([anchor, text]);
+
+      translator.processText(p, '0 items'); // blank again
+      expect(text.data).toBe('');
+      expect(Array.from(p.childNodes)).toEqual([anchor, text]);
+      expect(anchor.data).toBe(''); // never written, never moved, never reclaimed
+    });
+
+    it('reverts the original into the node it emptied, leaving a real anchor alone', () => {
+      const { translator, store } = createDeps();
+      store.set('es', '{{0}} items', ICU_ZERO);
+
+      const p = document.createElement('p');
+      const anchor = document.createTextNode(''); // the framework's
+      const text = document.createTextNode('0 items');
+      p.append(anchor, text);
+      root.appendChild(p);
+
+      translator.processText(p, '0 items');
+      expect(text.data).toBe('');
+
+      translator.revertAll();
+
+      expect(Array.from(p.childNodes)).toEqual([anchor, text]);
+      expect(text.data).toBe('0 items'); // restored into the node we blanked
+      expect(anchor.data).toBe('');
+      expect(p.hasAttribute('data-i18n-original')).toBe(false);
+    });
   });
 
   describe('skipping untranslatable content', () => {
