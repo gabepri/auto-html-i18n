@@ -722,4 +722,64 @@ describe('Observer', () => {
       observer.stop();
     });
   });
+
+  describe('ignore-check cost', () => {
+    // The TreeWalker rejects an ignored element's whole subtree, so every node it
+    // hands us already has an accepted ancestry. Re-walking that ancestry per node —
+    // running every ignoreSelector against every ancestor — is redundant work that
+    // scales with tree depth. Budget assertion, not a timing one: it stays honest on
+    // a loaded CI box and catches the regression the moment it's reintroduced.
+    function buildDeepTree(root: HTMLElement, rows: number, depth: number): void {
+      let html = '';
+      for (let r = 0; r < rows; r++) {
+        let inner = `<p>Row ${r} of the list</p>`;
+        for (let d = 0; d < depth; d++) inner = `<div class="l${d}">${inner}</div>`;
+        html += inner;
+      }
+      root.innerHTML = html;
+    }
+
+    it('runs each ignoreSelector at most once per element during a walk', () => {
+      const rows = 30;
+      const depth = 8;
+      buildDeepTree(root, rows, depth);
+
+      const selectors = ['.no-i18n', '[data-skip]', 'code', 'script', 'style'];
+      const { observer } = createObserver(root, { ignoreSelectors: selectors });
+
+      const elementCount = root.querySelectorAll('*').length + 1; // + the walk root
+      const matchesSpy = vi.spyOn(Element.prototype, 'matches');
+
+      observer.processSubtree(root);
+      const calls = matchesSpy.mock.calls.length;
+      matchesSpy.mockRestore();
+
+      // Checking each element once bounds this at elements × selectors. Walking every
+      // node's ancestry instead multiplies that by the tree depth (and drags text nodes
+      // in too) — for this tree, ~11x more work.
+      expect(calls).toBeLessThanOrEqual(elementCount * selectors.length);
+    });
+
+    it('still skips a deeply nested node inside an ignored subtree', () => {
+      root.innerHTML =
+        '<div><div data-i18n-ignore><div><div><p>Hidden text</p></div></div></div><p>Visible text</p></div>';
+
+      const { observer, onTextFound } = createObserver(root);
+      observer.processSubtree(root);
+
+      const texts = onTextFound.mock.calls.map((c) => c[1]);
+      expect(texts).toContain('Visible text');
+      expect(texts).not.toContain('Hidden text');
+    });
+
+    it('skips the whole walk when the walk root is itself inside an ignored subtree', () => {
+      root.innerHTML = '<div data-i18n-ignore><section><p>Hidden text</p></section></div>';
+      const section = root.querySelector('section')!;
+
+      const { observer, onTextFound } = createObserver(root);
+      observer.processSubtree(section);
+
+      expect(onTextFound).not.toHaveBeenCalled();
+    });
+  });
 });

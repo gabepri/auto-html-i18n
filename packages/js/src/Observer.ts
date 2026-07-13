@@ -1,5 +1,5 @@
 import type { ObserverConfig } from './types';
-import { isInsideIgnored, serializeAggregate, type IgnorePredicateConfig } from './ignore';
+import { isIgnoredElement, isInsideIgnored, serializeAggregate, type IgnorePredicateConfig } from './ignore';
 
 export class Observer {
   private config: ObserverConfig;
@@ -7,6 +7,7 @@ export class Observer {
   private allowedInlineTagsSet: Set<string>;
   private processedParents = new WeakSet<Element>();
   private ignorePredicate: IgnorePredicateConfig;
+  private ignoreMemo: Map<Element, boolean> | null = null;
 
   constructor(config: ObserverConfig) {
     this.config = config;
@@ -52,45 +53,14 @@ export class Observer {
   processSubtree(root: Node): void {
     this.processedParents = new WeakSet<Element>();
 
-    // Collect all items first, then fire callbacks.
-    // This prevents DOM mutations (from sync translations) from disrupting the TreeWalker.
-    const textItems: Array<{ element: Element; text: string; textNode?: Text }> = [];
-    const attrItems: Array<{ element: Element; attr: string; value: string }> = [];
-
-    if (root instanceof Element) {
-      this.collectElementAttrs(root, attrItems);
+    // The walk below only checks each node against the ignore predicate itself, which
+    // relies on the walk root's own ancestry being clean. That holds for start()'s
+    // root, but processSubtree is callable with any node — so verify it once here.
+    if (this.isInsideIgnored(root)) {
+      return;
     }
 
-    const walker = document.createTreeWalker(
-      root,
-      NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
-      {
-        acceptNode: (node: Node) => {
-          if (this.isInsideIgnored(node)) {
-            return NodeFilter.FILTER_REJECT;
-          }
-          return NodeFilter.FILTER_ACCEPT;
-        },
-      }
-    );
-
-    let node: Node | null = walker.nextNode();
-    while (node) {
-      if (node.nodeType === Node.ELEMENT_NODE) {
-        this.collectElementAttrs(node as Element, attrItems);
-      } else if (node.nodeType === Node.TEXT_NODE) {
-        this.collectTextNode(node as Text, textItems);
-      }
-      node = walker.nextNode();
-    }
-
-    // Now fire all callbacks (DOM mutations from sync translations won't disrupt the walk)
-    for (const item of attrItems) {
-      this.config.onAttributeFound(item.element, item.attr, item.value);
-    }
-    for (const item of textItems) {
-      this.config.onTextFound(item.element, item.text, item.textNode);
-    }
+    this.walk(root);
   }
 
   reprocessAll(): void {
@@ -113,7 +83,9 @@ export class Observer {
 
           if (node.nodeType === Node.ELEMENT_NODE) {
             this.processedParents = new WeakSet<Element>();
-            this.processSubtreeForMutation(node as Element);
+            // isInsideIgnored above already cleared this node and its ancestors, which
+            // is the precondition walk()'s self-only filter relies on.
+            this.walk(node as Element);
           } else if (node.nodeType === Node.TEXT_NODE) {
             this.processTextNode(node as Text);
           }
@@ -138,24 +110,41 @@ export class Observer {
     }
   }
 
-  private processSubtreeForMutation(element: Element): void {
-    // Collect all items first, then fire callbacks.
-    // This prevents DOM mutations (from sync translations) from disrupting the TreeWalker.
+  /**
+   * Collects everything translatable under `root`, then fires the callbacks.
+   *
+   * Collection completes before any callback runs, so a synchronous translation's DOM
+   * mutations can't disrupt the TreeWalker mid-walk.
+   *
+   * The filter tests each *element* against the ignore predicate alone, not its whole
+   * ancestry: FILTER_REJECT prunes an ignored element's entire subtree, so any node the
+   * walker offers us is already known to have no ignored ancestor inside the walk (and
+   * the caller guarantees the root's own ancestry is clean). Walking up from every node
+   * instead would re-run every ignoreSelector once per ancestor per node — work that
+   * grows with tree depth and dominates the walk on a deep page. Text nodes need no
+   * check at all: they can't be ignore boundaries, and their parent was accepted.
+   */
+  private walk(root: Node): void {
     const textItems: Array<{ element: Element; text: string; textNode?: Text }> = [];
     const attrItems: Array<{ element: Element; attr: string; value: string }> = [];
 
-    this.collectElementAttrs(element, attrItems);
+    if (root instanceof Element) {
+      this.collectElementAttrs(root, attrItems);
+    }
+
+    // Memoized for the collection phase only: a TreeWalker may consult its filter more
+    // than once for the same node, and each miss costs a matches() per ignoreSelector.
+    // Torn down before the callbacks run, since those mutate the DOM.
+    this.ignoreMemo = new Map<Element, boolean>();
 
     const walker = document.createTreeWalker(
-      element,
+      root,
       NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
       {
-        acceptNode: (node: Node) => {
-          if (this.isInsideIgnored(node)) {
-            return NodeFilter.FILTER_REJECT;
-          }
-          return NodeFilter.FILTER_ACCEPT;
-        },
+        acceptNode: (node: Node) =>
+          node.nodeType === Node.ELEMENT_NODE && this.isIgnored(node as Element)
+            ? NodeFilter.FILTER_REJECT
+            : NodeFilter.FILTER_ACCEPT,
       }
     );
 
@@ -169,13 +158,27 @@ export class Observer {
       node = walker.nextNode();
     }
 
-    // Now fire all callbacks (DOM mutations from sync translations won't disrupt the walk)
+    this.ignoreMemo = null;
+
     for (const item of attrItems) {
       this.config.onAttributeFound(item.element, item.attr, item.value);
     }
     for (const item of textItems) {
       this.config.onTextFound(item.element, item.text, item.textNode);
     }
+  }
+
+  /** Is this element itself an ignore boundary? Memoized while a walk is collecting. */
+  private isIgnored(element: Element): boolean {
+    const memo = this.ignoreMemo;
+    if (!memo) return isIgnoredElement(element, this.ignorePredicate);
+
+    let hit = memo.get(element);
+    if (hit === undefined) {
+      hit = isIgnoredElement(element, this.ignorePredicate);
+      memo.set(element, hit);
+    }
+    return hit;
   }
 
   private processTextNode(textNode: Text): void {
