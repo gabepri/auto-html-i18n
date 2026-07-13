@@ -314,12 +314,26 @@ export class I18nObserver {
           this.translator.applyPending(key);
         }
       }
+      // Anything we asked about and didn't get back is declined: mark it reported so
+      // it isn't re-queued, and release its tracked nodes. Nothing can ever apply
+      // them (applyPending only runs for keys the callback returned), so leaving them
+      // tracked would pin detached DOM for the life of the page.
+      for (const item of reportable) {
+        if (!this.store.isResolved(this.currentLocale, item.masked)) {
+          this.markDeclined(item.masked);
+        }
+      }
     } catch (err) {
       console.error('auto-html-i18n: translation callback error', err);
       // Mark items as reported to prevent infinite re-queuing
       for (const item of reportable) {
-        this.store.markReported(this.currentLocale, item.masked);
+        this.markDeclined(item.masked);
       }
     }
+  }
+
+  private markDeclined(key: string): void {
+    this.store.markReported(this.currentLocale, key);
+    this.translator.dropPending(key);
   }
 }

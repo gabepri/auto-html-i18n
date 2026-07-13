@@ -238,7 +238,13 @@ export class Translator {
 
     element.setAttribute(this.config.pendingAttribute, '');
 
-    if (entry && (entry.status === 'pending' || entry.status === 'reported')) {
+    if (entry && entry.status === 'reported') {
+      // Already reported and declined — no applyPending will ever come for this key,
+      // so tracking the node would only pin it (and its subtree) forever.
+      return;
+    }
+
+    if (entry && entry.status === 'pending') {
       this.trackPendingNode(cacheKey, element, maskResult, originalText, isHtml, scope, textNode);
       return;
     }
@@ -315,6 +321,10 @@ export class Translator {
       return; // half-rendered: leave the attribute alone and report nothing
     }
 
+    if (entry && entry.status === 'reported') {
+      return; // declined — see processText
+    }
+
     if (!entry) {
       this.store.markPending(this.config.locale, cacheKey);
       this.queue.enqueue(
@@ -337,6 +347,22 @@ export class Translator {
       scope,
     };
     this.addToPendingSet(cacheKey, pendingNode);
+  }
+
+  /**
+   * Forget the nodes tracked for a key that will never be applied — the consumer was
+   * asked about it and declined. A {@link PendingNode} holds a strong reference to its
+   * element, so leaving these behind pins detached DOM for the life of the page.
+   */
+  dropPending(cacheKey: string): void {
+    this.pendingNodes.delete(cacheKey);
+  }
+
+  /** Total tracked pending nodes. Retention invariant for tests and perf budgets. */
+  get pendingNodeCount(): number {
+    let n = 0;
+    for (const set of this.pendingNodes.values()) n += set.size;
+    return n;
   }
 
   applyPending(cacheKey: string): void {

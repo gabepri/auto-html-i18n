@@ -2427,4 +2427,82 @@ describe('Translator', () => {
       expect(p.getAttribute('data-i18n-original')).toBe('Hello');
     });
   });
+
+  describe('pending node retention', () => {
+    // A `reported` key is one the consumer was asked about and declined to translate.
+    // No applyPending will ever come for it, so tracking its nodes only pins them —
+    // and their whole detached DOM subtree — in memory for the life of the page.
+    it('does not retain pending nodes for a reported key across re-renders', () => {
+      const { translator, store } = createDeps();
+
+      const first = document.createElement('p');
+      first.textContent = 'Hello world';
+      root.appendChild(first);
+      translator.processText(first, 'Hello world');
+      expect(translator.pendingNodeCount).toBe(1); // in flight — legitimately tracked
+
+      store.markReported('es', 'Hello world'); // consumer declined it
+
+      // The same string re-renders over and over (virtualized list, route changes).
+      for (let i = 0; i < 50; i++) {
+        const el = document.createElement('p');
+        el.textContent = 'Hello world';
+        root.appendChild(el);
+        translator.processText(el, 'Hello world');
+        el.remove(); // and is torn down again
+      }
+
+      expect(translator.pendingNodeCount).toBe(1);
+    });
+
+    it('does not retain pending nodes for a reported attribute key across re-renders', () => {
+      const { translator, store } = createDeps();
+
+      const first = document.createElement('input');
+      first.setAttribute('placeholder', 'Search here');
+      root.appendChild(first);
+      translator.processAttribute(first, 'placeholder', 'Search here');
+      expect(translator.pendingNodeCount).toBe(1);
+
+      store.markReported('es', 'Search here');
+
+      for (let i = 0; i < 50; i++) {
+        const el = document.createElement('input');
+        el.setAttribute('placeholder', 'Search here');
+        root.appendChild(el);
+        translator.processAttribute(el, 'placeholder', 'Search here');
+        el.remove();
+      }
+
+      expect(translator.pendingNodeCount).toBe(1);
+    });
+
+    it('dropPending forgets a key’s tracked nodes', () => {
+      const { translator } = createDeps();
+
+      const p = document.createElement('p');
+      p.textContent = 'Hello world';
+      root.appendChild(p);
+      translator.processText(p, 'Hello world');
+      expect(translator.pendingNodeCount).toBe(1);
+
+      translator.dropPending('Hello world');
+      expect(translator.pendingNodeCount).toBe(0);
+    });
+
+    it('still applies a translation to nodes tracked while the flush was in flight', () => {
+      const { translator, store } = createDeps();
+
+      const p = document.createElement('p');
+      p.textContent = 'Hello world';
+      root.appendChild(p);
+      translator.processText(p, 'Hello world'); // pending, tracked
+
+      store.set('es', 'Hello world', 'Hola mundo');
+      translator.applyPending('Hello world');
+
+      expect(p.textContent).toBe('Hola mundo');
+      expect(translator.pendingNodeCount).toBe(0);
+    });
+  });
 });

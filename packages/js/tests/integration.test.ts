@@ -1454,4 +1454,71 @@ describe('Integration Tests', () => {
       i18n.stop();
     });
   });
+
+  describe('pending node retention', () => {
+    // Keys the consumer was asked about but declined to translate can never be applied
+    // (applyPending only runs for keys the callback returned). Tracking their nodes
+    // just pins detached DOM in memory for the life of the page.
+    function pendingCount(i18n: I18nObserver): number {
+      return (i18n as unknown as { translator: { pendingNodeCount: number } })
+        .translator.pendingNodeCount;
+    }
+
+    it('releases tracked nodes for keys the callback declined to translate', async () => {
+      // Translates one of the two strings; declines the other.
+      const onMissing = vi.fn<(items: TranslationItem[], locale: string) => Promise<Record<string, string> | null>>()
+        .mockResolvedValue({ 'Hello': 'Hola' });
+
+      root.innerHTML = '<p>Hello</p><p>Goodbye</p>';
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        rootElement: root,
+        onMissingTranslation: onMissing,
+      });
+      i18n.start();
+      await flushDebounce();
+
+      expect(root.querySelector('p')?.textContent).toBe('Hola');
+      // 'Hello' drained by applyPending; 'Goodbye' declined, so nothing will ever
+      // apply it — it must not stay tracked.
+      expect(pendingCount(i18n)).toBe(0);
+
+      i18n.stop();
+    });
+
+    it('does not re-track a declined key as it re-renders', async () => {
+      const onMissing = vi.fn<(items: TranslationItem[], locale: string) => Promise<Record<string, string> | null>>()
+        .mockResolvedValue({});
+
+      root.innerHTML = '<p>Goodbye</p>';
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        rootElement: root,
+        onMissingTranslation: onMissing,
+      });
+      i18n.start();
+      await flushDebounce();
+
+      expect(pendingCount(i18n)).toBe(0);
+
+      // The same untranslated string churns through many mounts/unmounts.
+      for (let i = 0; i < 30; i++) {
+        const p = document.createElement('p');
+        p.textContent = 'Goodbye';
+        root.appendChild(p);
+        await waitForMutations();
+        p.remove();
+        await waitForMutations();
+      }
+      await flushDebounce();
+
+      expect(pendingCount(i18n)).toBe(0);
+      // And it was only ever reported once — no infinite re-queuing.
+      expect(onMissing).toHaveBeenCalledTimes(1);
+
+      i18n.stop();
+    });
+  });
 });
