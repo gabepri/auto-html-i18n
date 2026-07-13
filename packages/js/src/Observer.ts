@@ -7,7 +7,11 @@ export class Observer {
   private allowedInlineTagsSet: Set<string>;
   private processedParents = new WeakSet<Element>();
   private ignorePredicate: IgnorePredicateConfig;
+  // Per-walk caches. Open only while a walk is *collecting* — the DOM is stable then,
+  // because callbacks (which may translate synchronously) fire after collection ends.
   private ignoreMemo: Map<Element, boolean> | null = null;
+  private inlineMemo: Map<Element, boolean> | null = null;
+  private aggregateMemo: Map<Element, boolean> | null = null;
 
   constructor(config: ObserverConfig) {
     this.config = config;
@@ -136,6 +140,8 @@ export class Observer {
     // than once for the same node, and each miss costs a matches() per ignoreSelector.
     // Torn down before the callbacks run, since those mutate the DOM.
     this.ignoreMemo = new Map<Element, boolean>();
+    this.inlineMemo = new Map<Element, boolean>();
+    this.aggregateMemo = new Map<Element, boolean>();
 
     const walker = document.createTreeWalker(
       root,
@@ -159,6 +165,8 @@ export class Observer {
     }
 
     this.ignoreMemo = null;
+    this.inlineMemo = null;
+    this.aggregateMemo = null;
 
     for (const item of attrItems) {
       this.config.onAttributeFound(item.element, item.attr, item.value);
@@ -250,6 +258,26 @@ export class Observer {
    * otherwise the inner content is collected twice.
    */
   private findAggregationTarget(element: Element): Element | null {
+    // Memoize the inline-ness verdicts for the duration of this lookup at minimum.
+    // Inside a walk the memos are already open and shared across every node, which is
+    // where the real redundancy lives: sibling text nodes of one paragraph, and every
+    // rung of the climb, otherwise rescan the same subtrees over and over.
+    const owned = this.inlineMemo === null;
+    if (owned) {
+      this.inlineMemo = new Map<Element, boolean>();
+      this.aggregateMemo = new Map<Element, boolean>();
+    }
+    try {
+      return this.climbToAggregationTarget(element);
+    } finally {
+      if (owned) {
+        this.inlineMemo = null;
+        this.aggregateMemo = null;
+      }
+    }
+  }
+
+  private climbToAggregationTarget(element: Element): Element | null {
     let current: Element | null = element;
     let target: Element | null = null;
     while (current && current !== this.config.rootElement) {
@@ -271,6 +299,18 @@ export class Observer {
   }
 
   private hasInlineChildElements(element: Element): boolean {
+    const memo = this.aggregateMemo;
+    if (!memo) return this.computeHasInlineChildElements(element);
+
+    let hit = memo.get(element);
+    if (hit === undefined) {
+      hit = this.computeHasInlineChildElements(element);
+      memo.set(element, hit);
+    }
+    return hit;
+  }
+
+  private computeHasInlineChildElements(element: Element): boolean {
     const children = element.children;
     if (children.length === 0) return false;
     // Every child — and its entire subtree — must be inline-allowed. A non-inline
@@ -295,6 +335,18 @@ export class Observer {
 
   /** True when `element` and all of its descendant elements are allowed inline tags. */
   private isFullyInline(element: Element): boolean {
+    const memo = this.inlineMemo;
+    if (!memo) return this.computeFullyInline(element);
+
+    let hit = memo.get(element);
+    if (hit === undefined) {
+      hit = this.computeFullyInline(element);
+      memo.set(element, hit);
+    }
+    return hit;
+  }
+
+  private computeFullyInline(element: Element): boolean {
     if (!this.allowedInlineTagsSet.has(element.tagName.toLowerCase())) return false;
     for (const child of element.children) {
       if (!this.isFullyInline(child)) return false;

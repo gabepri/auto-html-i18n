@@ -782,4 +782,71 @@ describe('Observer', () => {
       expect(onTextFound).not.toHaveBeenCalled();
     });
   });
+
+  describe('aggregation-check cost', () => {
+    // findAggregationTarget runs per text node and climbs to the root, and each rung
+    // re-tests every child's whole subtree for inline-ness. A paragraph with several
+    // direct text nodes therefore rescans the same subtrees once per text node, and
+    // again at every ancestor. The answers can't change mid-walk (callbacks fire only
+    // after collection), so each element's verdict should be computed once.
+    it('computes each element’s inline-ness at most once per walk', () => {
+      const rows = 20;
+      let html = '';
+      for (let r = 0; r < rows; r++) {
+        // Several direct text nodes interleaved with nested inline elements — each text
+        // node re-enters findAggregationTarget for the same paragraph.
+        html += `<section><p>Start ${r} <span>middle <em>deep</em></span> then <span>more</span> end</p></section>`;
+      }
+      root.innerHTML = html;
+
+      const { observer } = createObserver(root);
+      const elementCount = root.querySelectorAll('*').length;
+
+      const inlineSpy = vi.spyOn(
+        observer as unknown as { computeFullyInline: (el: Element) => boolean },
+        'computeFullyInline'
+      );
+      const aggSpy = vi.spyOn(
+        observer as unknown as { computeHasInlineChildElements: (el: Element) => boolean },
+        'computeHasInlineChildElements'
+      );
+
+      observer.processSubtree(root);
+
+      expect(inlineSpy.mock.calls.length).toBeLessThanOrEqual(elementCount);
+      expect(aggSpy.mock.calls.length).toBeLessThanOrEqual(elementCount);
+    });
+
+    it('still aggregates a formatted sentence and skips a structural container', () => {
+      root.innerHTML =
+        '<p>Hello <strong>there</strong> friend</p>' +
+        '<nav><a href="/a">One</a><a href="/b">Two</a></nav>';
+
+      const { observer, onTextFound } = createObserver(root);
+      observer.processSubtree(root);
+
+      const texts = onTextFound.mock.calls.map((c) => c[1]);
+      // The sentence aggregates into one unit...
+      expect(texts).toContain('Hello <strong>there</strong> friend');
+      // ...while the nav's links stay independent.
+      expect(texts).toContain('One');
+      expect(texts).toContain('Two');
+    });
+
+    it('re-reads inline-ness on a later walk after the DOM changed', () => {
+      root.innerHTML = '<p>Hello <strong>there</strong> friend</p>';
+      const { observer, onTextFound } = createObserver(root);
+      observer.processSubtree(root);
+      expect(onTextFound.mock.calls.map((c) => c[1])).toContain('Hello <strong>there</strong> friend');
+
+      // An <input> makes the paragraph no longer fully inline — a memo held across
+      // walks would still call it aggregatable.
+      onTextFound.mockClear();
+      root.querySelector('strong')!.appendChild(document.createElement('input'));
+      observer.processSubtree(root);
+
+      const texts = onTextFound.mock.calls.map((c) => c[1]);
+      expect(texts).not.toContain('Hello <strong>there</strong> friend');
+    });
+  });
 });
