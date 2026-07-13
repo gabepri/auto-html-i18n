@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { Masker } from '../src/Masker';
 import { getLocaleDirection } from '../src/direction';
+import { isUnrenderedValue } from '../src/unrendered';
 import type { CasePattern, IgnoreWordEntry, MaskerConfig, TextDirection, VariableInfo } from '../src/types';
 
 interface FixtureCase {
@@ -52,6 +53,12 @@ interface DirectionFixtureCase {
   expected: TextDirection;
 }
 
+interface UnrenderedFixtureCase {
+  name: string;
+  masked: string;
+  expected: boolean;
+}
+
 const DEFAULT_ALLOWED_TAGS = ['a', 'b', 'i', 'u', 'strong', 'em', 'span', 'small', 'mark', 'del'];
 
 // Vitest runs from the package directory (packages/js); fixtures live at the repo root.
@@ -59,6 +66,7 @@ const fixturesDir = resolve(process.cwd(), '../../fixtures/masker');
 const unmaskFixturesDir = resolve(process.cwd(), '../../fixtures/unmask');
 const validateFixturesDir = resolve(process.cwd(), '../../fixtures/icu-validate');
 const directionFixturesDir = resolve(process.cwd(), '../../fixtures/direction');
+const unrenderedFixturesDir = resolve(process.cwd(), '../../fixtures/unrendered');
 
 function loadFixtureDir<T>(dir: string): Array<{ file: string; cases: T[] }> {
   return readdirSync(dir)
@@ -134,6 +142,18 @@ describe('shared direction fixtures', () => {
       for (const c of cases) {
         it(c.name, () => {
           expect(getLocaleDirection(c.locale)).toBe(c.expected);
+        });
+      }
+    });
+  }
+});
+
+describe('shared unrendered-value fixtures', () => {
+  for (const { file, cases } of loadFixtureDir<UnrenderedFixtureCase>(unrenderedFixturesDir)) {
+    describe(file, () => {
+      for (const c of cases) {
+        it(c.name, () => {
+          expect(isUnrenderedValue(c.masked)).toBe(c.expected);
         });
       }
     });

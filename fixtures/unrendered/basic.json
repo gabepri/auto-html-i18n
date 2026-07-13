@@ -1,0 +1,107 @@
+[
+  {
+    "name": "trailing undefined value",
+    "masked": "Level undefined",
+    "expected": true
+  },
+  {
+    "name": "leading undefined value",
+    "masked": "undefined Levels",
+    "expected": true
+  },
+  {
+    "name": "NaN in the middle of a sentence",
+    "masked": "Read time about NaN minutes",
+    "expected": true
+  },
+  {
+    "name": "null value",
+    "masked": "Owner is null",
+    "expected": true
+  },
+  {
+    "name": "bare undefined",
+    "masked": "undefined",
+    "expected": true
+  },
+  {
+    "name": "undefined next to punctuation",
+    "masked": "Level: undefined.",
+    "expected": true
+  },
+  {
+    "name": "undefined inside an inline tag",
+    "masked": "Level <b0>undefined</b0>",
+    "expected": true
+  },
+  {
+    "name": "hyphenated null still counts as a standalone token",
+    "masked": "null-safe deployment",
+    "expected": true
+  },
+  {
+    "name": "empty single-quote pair",
+    "masked": "No Encyclopedia results found for ''",
+    "expected": true
+  },
+  {
+    "name": "empty double-quote pair",
+    "masked": "Search for \"\" returned nothing",
+    "expected": true
+  },
+  {
+    "name": "empty guillemet pair",
+    "masked": "Aucun résultat pour «»",
+    "expected": true
+  },
+  {
+    "name": "empty curly single-quote pair",
+    "masked": "No results for ‘’",
+    "expected": true
+  },
+  {
+    "name": "empty curly double-quote pair",
+    "masked": "No results for “”",
+    "expected": true
+  },
+  {
+    "name": "undefined as a word prefix is legitimate copy",
+    "masked": "This value is undefinedish",
+    "expected": false
+  },
+  {
+    "name": "null inside a longer word is legitimate copy",
+    "masked": "Annulled contracts",
+    "expected": false
+  },
+  {
+    "name": "nullify is legitimate copy",
+    "masked": "Nullify the request",
+    "expected": false
+  },
+  {
+    "name": "NaN as a word prefix is legitimate copy",
+    "masked": "Naan bread",
+    "expected": false
+  },
+  {
+    "name": "capitalized Null is not a rendering artifact",
+    "masked": "Null Island is at 0 degrees",
+    "expected": false
+  },
+  {
+    "name": "properly rendered value",
+    "masked": "Level {{0}}",
+    "expected": false
+  },
+  {
+    "name": "non-empty quoted value",
+    "masked": "No results found for 'cats'",
+    "expected": false
+  },
+  {
+    "name": "ordinary sentence",
+    "masked": "Read time about {{0}} minutes",
+    "expected": false
+  }
+]

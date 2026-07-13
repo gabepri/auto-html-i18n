@@ -68,8 +68,24 @@ export interface I18nConfig {
   manageDirection?: boolean;
   /** Element whose dir/lang are managed; defaults to document.documentElement */
   directionElement?: HTMLElement;
+  /**
+   * Skip reporting masks captured from a half-rendered UI ("Level undefined",
+   * "about NaN minutes", "results for ''"). Such text is still rendered as-is —
+   * there is nothing to translate it to — but never reaches onMissingTranslation.
+   * Defaults to true. See `isUnrenderedValue` to override the detection.
+   */
+  skipUnrenderedValues?: boolean;
+  /**
+   * Overrides the half-rendered-value detection. Use it when your copy legitimately
+   * contains "null"/"undefined"/empty quotes. Ignored when `skipUnrenderedValues`
+   * is false.
+   */
+  isUnrenderedValue?: UnrenderedValuePredicate;
   debug?: boolean;
 }
+
+/** Decides whether a mask is an artifact of a half-rendered UI and must not be reported. */
+export type UnrenderedValuePredicate = (masked: string, original: string) => boolean;
 
 // ---- Masker Types ----
 

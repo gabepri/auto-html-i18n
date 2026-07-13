@@ -1,4 +1,4 @@
-import type { I18nConfig, I18nStatus, IcuValidationResult, IgnoreWordEntry, TextDirection, TranslationEntry, TranslationItem, VariableInfo } from './types';
+import type { I18nConfig, I18nStatus, IcuValidationResult, IgnoreWordEntry, TextDirection, TranslationEntry, TranslationItem, UnrenderedValuePredicate, VariableInfo } from './types';
 import { getLocaleDirection } from './direction';
 import { Store } from './Store';
 import { Queue } from './Queue';
@@ -6,6 +6,7 @@ import { Masker } from './Masker';
 import { Observer } from './Observer';
 import { Translator } from './Translator';
 import { isInsideIgnored, serializeAggregate, type IgnorePredicateConfig } from './ignore';
+import { isUnrenderedValue } from './unrendered';
 
 const DEFAULTS = {
   allowedInlineTags: ['a', 'b', 'i', 'u', 'strong', 'em', 'span', 'small', 'mark', 'del', 'sup', 'sub'],
@@ -21,6 +22,8 @@ const DEFAULTS = {
   ignoreAttribute: 'data-i18n-ignore',
   scopeAttribute: 'data-i18n-scope',
   manageDirection: false,
+  skipUnrenderedValues: true,
+  isUnrenderedValue,
   debug: false,
 };
 
@@ -53,6 +56,8 @@ export class I18nObserver {
       scopeAttribute: userConfig.scopeAttribute ?? DEFAULTS.scopeAttribute,
       manageDirection: userConfig.manageDirection ?? DEFAULTS.manageDirection,
       directionElement: userConfig.directionElement ?? document.documentElement,
+      skipUnrenderedValues: userConfig.skipUnrenderedValues ?? DEFAULTS.skipUnrenderedValues,
+      isUnrenderedValue: userConfig.isUnrenderedValue ?? DEFAULTS.isUnrenderedValue,
       debug: userConfig.debug ?? DEFAULTS.debug,
       locale: userConfig.locale,
       onMissingTranslation: userConfig.onMissingTranslation,
@@ -64,6 +69,11 @@ export class I18nObserver {
       ignoreAttribute: config.ignoreAttribute,
       ignoreSelectors: config.ignoreSelectors,
     };
+    // Gate on reporting only: a half-rendered mask is rendered as-is but never sent to
+    // onMissingTranslation. Off entirely when the consumer disables the gate.
+    const isUnrendered: UnrenderedValuePredicate = config.skipUnrenderedValues
+      ? config.isUnrenderedValue
+      : () => false;
 
     // Initialize internal modules
     this.store = new Store();
@@ -88,6 +98,7 @@ export class I18nObserver {
         debug: config.debug,
         serializeAggregate: (element) => serializeAggregate(element, ignorePredicate),
         ignorePredicate,
+        isUnrendered,
       }
     );
 
@@ -114,6 +125,7 @@ export class I18nObserver {
         debug: config.debug,
         serializeAggregate: (element) => serializeAggregate(element, ignorePredicate),
         ignorePredicate,
+        isUnrendered,
       }
     );
 

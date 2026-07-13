@@ -23,6 +23,7 @@ It features **Smart Masking**, **Inline Tag Support**, and **ICU MessageFormat**
 - [Browser Support](#-browser-support)
 - [Performance](#-performance)
 - [Security](#-security)
+- [Half-rendered values](#-half-rendered-values)
 - [Debugging](#-debugging)
 - [Framework Integration](#-framework-integration)
 - [Contributors Guide](#-contributors-guide)
@@ -108,6 +109,8 @@ The `I18nObserver` constructor accepts a config object with the following proper
 | `scopeAttribute` | `string` | `'data-i18n-scope'` | The attribute name used to define a translation scope. Scopes inherit down the DOM tree. See [Scoped Translations](#-scoped-translations). |
 | `manageDirection` | `boolean` | `false` | When enabled, `start()` and `setLocale()` keep the `dir` and `lang` attributes of `directionElement` in sync with the locale (e.g. `dir="rtl" lang="he-IL"`). `stop(true)` / `destroy(true)` restore whatever was there before. See [RTL support](#-rtl-support). |
 | `directionElement` | `HTMLElement` | `document.documentElement` | The element whose `dir`/`lang` are managed when `manageDirection` is enabled. Point it at your widget's root when translating an embedded subtree. |
+| `skipUnrenderedValues` | `boolean` | `true` | Never report strings a component painted before its data arrived (`"Level undefined"`, `"about NaN minutes"`, `"results for ''"`). They render as-is but are withheld from `onMissingTranslation`. See [Half-rendered values](#-half-rendered-values). |
+| `isUnrenderedValue` | `(masked: string, original: string) => boolean` | built-in | Overrides the half-rendered detection. Use it if your copy legitimately contains `null`/`undefined`/empty quotes. Ignored when `skipUnrenderedValues` is `false`. |
 | `debug` | `boolean` | `false` | When enabled, each item in `onMissingTranslation` includes a `debug` field with DOM context for bug reporting. See [Debugging](#-debugging). |
 
 ### The `onMissingTranslation` Item Object
@@ -673,6 +676,40 @@ The library reconstructs translated HTML by re-injecting inline tags and attribu
 - **Tag allowlist:** Only tags listed in `allowedInlineTags` are permitted in restored output. Any *new* tags a translation introduces that are not in the allowlist are escaped as plain text. (Non-allowed tags from your own source are captured as `'markup'` variables at mask time and restored verbatim — the translation cannot inject content into those slots.)
 - **Attribute stripping:** Event handler attributes (e.g., `onclick`, `onerror`) are always stripped from restored tags — including from original nodes reused when morphing an aggregated translation — even if they appear in the translation response.
 - **Recommendation:** Ensure your translation backend is authenticated and returns sanitized content. If using an LLM, validate responses before returning them to the client.
+
+---
+
+## 🚧 Half-rendered Values
+
+A component that paints before its data arrives puts the *stringified absence* of the value straight into the DOM:
+
+```html
+<p>Level undefined</p>
+<p>Read time about NaN minutes</p>
+<p>No Encyclopedia results found for ''</p>
+```
+
+Those tokens aren't numbers or dates, so masking finds no variable in them and bakes the broken value into the key as literal text (`"Level undefined"` rather than `"Level {{0}}"`).
+
+So by default the library **renders such text untranslated but never reports it** — `onMissingTranslation` doesn't see it. Nothing about the skip is cached, so when the component re-renders with real data the correct mask (`"Level {{0}}"`) is a first sighting and reports normally.
+
+A mask counts as half-rendered when it contains `undefined`, `null` or `NaN` **as a standalone word**, or an empty quote pair (`''`, `""`, `«»`, `‘’`, `“”`). Word boundaries are respected: `"This value is undefinedish"` and `"Annulled contracts"` report as usual.
+
+Two escape hatches, in case your copy legitimately contains those words:
+
+```js
+// Turn the gate off entirely — report everything.
+const i18n = new I18nObserver({ ..., skipUnrenderedValues: false });
+
+// Or keep the gate and supply your own predicate. Here, copy may say "null",
+// but "undefined" is always a rendering artifact.
+const i18n = new I18nObserver({
+  ...,
+  isUnrenderedValue: (masked, original) => /\bundefined\b/.test(masked),
+});
+```
+
+A translation you *have* supplied for such a key still applies — the gate is on reporting, not on lookup.
 
 ---
 

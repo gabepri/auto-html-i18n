@@ -57,6 +57,11 @@ When metadata is present, the corresponding `expected.variables[]` entry should 
 - `masker/comments.json` — HTML comments masked as variables
 - `masker/case-detection.json` — upper/lower/mixed pattern detection
 - `masker/whitespace.json` — leading/trailing whitespace handling
+- `unrendered/*.json` — half-rendered-value detection: which masks are artifacts of a UI that painted before its data arrived, and so must never be reported. Cases have a different shape from the masker ones:
+
+```json
+{ "name": "trailing undefined value", "masked": "Level undefined", "expected": true }
+```
 
 ## Adding a fixture
 

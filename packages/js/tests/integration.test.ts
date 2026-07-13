@@ -1283,4 +1283,175 @@ describe('Integration Tests', () => {
       i18n.stop();
     });
   });
+
+  describe('half-rendered values', () => {
+    function firstItem(onMissing: ReturnType<typeof vi.fn>): TranslationItem {
+      return (onMissing.mock.calls[0]![0] as TranslationItem[])[0]!;
+    }
+
+    it('does not report a mask holding a value that failed to render', async () => {
+      const onMissing = vi.fn().mockResolvedValue(null);
+      root.innerHTML = '<p>Level undefined</p>';
+
+      const i18n = new I18nObserver({ locale: 'es', onMissingTranslation: onMissing, rootElement: root });
+      i18n.start();
+      await flushDebounce();
+
+      expect(onMissing).not.toHaveBeenCalled();
+      // Nothing to translate to — the text stays as the component painted it.
+      expect(root.querySelector('p')!.textContent).toBe('Level undefined');
+      expect(root.querySelector('p')!.hasAttribute('data-i18n-pending')).toBe(false);
+
+      i18n.stop();
+    });
+
+    it('reports the real mask once the component re-renders with data', async () => {
+      // Mutation-driven: real timers, as elsewhere in this file.
+      vi.useRealTimers();
+
+      const onMissing = vi.fn().mockResolvedValue({ 'Level {{0}}': 'Nivel {{0}}' });
+      root.innerHTML = '<p>Level undefined</p>';
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        rootElement: root,
+        debounceTime: 10,
+      });
+      i18n.start();
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(onMissing).not.toHaveBeenCalled();
+
+      // The data arrives and the component repaints: a different mask, which reports
+      // normally — the skip left nothing behind that could suppress it.
+      const p = root.querySelector('p')!;
+      p.textContent = 'Level 3';
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(onMissing).toHaveBeenCalledTimes(1);
+      expect(firstItem(onMissing).masked).toBe('Level {{0}}');
+      expect(p.textContent).toBe('Nivel 3');
+
+      i18n.stop();
+      vi.useFakeTimers();
+    });
+
+    it('skips NaN, null and empty-quote renderings', async () => {
+      const onMissing = vi.fn().mockResolvedValue(null);
+      root.innerHTML =
+        '<p>Read time about NaN minutes</p>' +
+        '<p>Owner is null</p>' +
+        "<p>No Encyclopedia results found for ''</p>" +
+        '<p>Only real copy here</p>';
+
+      const i18n = new I18nObserver({ locale: 'es', onMissingTranslation: onMissing, rootElement: root });
+      i18n.start();
+      await flushDebounce();
+
+      expect(onMissing).toHaveBeenCalledTimes(1);
+      expect(onMissing.mock.calls[0]![0].map((i: TranslationItem) => i.masked)).toEqual(['Only real copy here']);
+
+      i18n.stop();
+    });
+
+    it('does not report a half-rendered attribute value', async () => {
+      const onMissing = vi.fn().mockResolvedValue(null);
+      root.innerHTML = '<img alt="Photo of undefined">';
+
+      const i18n = new I18nObserver({ locale: 'es', onMissingTranslation: onMissing, rootElement: root });
+      i18n.start();
+      await flushDebounce();
+
+      expect(onMissing).not.toHaveBeenCalled();
+
+      i18n.stop();
+    });
+
+    it('still reports half-rendered masks when skipUnrenderedValues is false', async () => {
+      const onMissing = vi.fn().mockResolvedValue(null);
+      root.innerHTML = '<p>Level undefined</p>';
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        rootElement: root,
+        skipUnrenderedValues: false,
+      });
+      i18n.start();
+      await flushDebounce();
+
+      expect(onMissing).toHaveBeenCalledTimes(1);
+      expect(firstItem(onMissing).masked).toBe('Level undefined');
+
+      i18n.stop();
+    });
+
+    it('honors a custom isUnrenderedValue predicate', async () => {
+      const onMissing = vi.fn().mockResolvedValue(null);
+      // A corpus whose copy legitimately says "null": only "undefined" is an artifact.
+      const isUnrenderedValue = vi.fn((masked: string) => /\bundefined\b/.test(masked));
+      root.innerHTML = '<p>Owner is null</p><p>Level undefined</p>';
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        rootElement: root,
+        isUnrenderedValue,
+      });
+      i18n.start();
+      await flushDebounce();
+
+      expect(onMissing).toHaveBeenCalledTimes(1);
+      expect(onMissing.mock.calls[0]![0].map((i: TranslationItem) => i.masked)).toEqual(['Owner is null']);
+      expect(isUnrenderedValue).toHaveBeenCalledWith('Level undefined', 'Level undefined');
+
+      i18n.stop();
+    });
+
+    it('applies a cached translation for a half-rendered key rather than dropping it', async () => {
+      const onMissing = vi.fn().mockResolvedValue(null);
+      root.innerHTML = '<p>Level undefined</p>';
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        rootElement: root,
+        initialCache: { 'Level undefined': 'Nivel desconocido' },
+      });
+      i18n.start();
+      await flushDebounce();
+
+      expect(onMissing).not.toHaveBeenCalled();
+      expect(root.querySelector('p')!.textContent).toBe('Nivel desconocido');
+
+      i18n.stop();
+    });
+
+    it('does not report a half-rendered mask on locale switch', async () => {
+      const onMissing = vi.fn().mockResolvedValue(null);
+      root.innerHTML = '<p>Level undefined</p><img alt="Photo of undefined">';
+
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        rootElement: root,
+        // Cached in es, so both units get translated and tracked — which is what
+        // brings them back through the re-translate (report) path on a locale switch.
+        initialCache: {
+          'Level undefined': 'Nivel desconocido',
+          'Photo of undefined': 'Foto de desconocido',
+        },
+      });
+      i18n.start();
+      await flushDebounce();
+
+      i18n.setLocale('fr');
+      await flushDebounce();
+
+      expect(onMissing).not.toHaveBeenCalled();
+
+      i18n.stop();
+    });
+  });
 });

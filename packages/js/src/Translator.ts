@@ -1,4 +1,4 @@
-import type { CasePattern, TranslationEntry, TranslationItem, TranslationItemDebug, OnMissingTranslationCallback, MaskResult, VariableInfo } from './types';
+import type { CasePattern, TranslationEntry, TranslationItem, TranslationItemDebug, OnMissingTranslationCallback, MaskResult, UnrenderedValuePredicate, VariableInfo } from './types';
 import { Store } from './Store';
 import { Queue } from './Queue';
 import { Masker } from './Masker';
@@ -53,6 +53,11 @@ export interface TranslatorConfig {
   serializeAggregate?: (element: Element) => string;
   /** Attribute/selectors identifying ignore boundaries; used to preserve live nodes on apply. */
   ignorePredicate?: IgnorePredicateConfig;
+  /**
+   * Recognizes a mask captured from a half-rendered UI, which must never be reported.
+   * Defaults to reporting everything (no gate) for callers that don't wire it up.
+   */
+  isUnrendered?: UnrenderedValuePredicate;
 }
 
 interface PendingNode {
@@ -114,6 +119,7 @@ export class Translator {
   // identical for callers (e.g. tests) that don't wire them up.
   private serializeAggregate: (element: Element) => string;
   private ignorePredicate: IgnorePredicateConfig;
+  private isUnrendered: UnrenderedValuePredicate;
 
   constructor(
     store: Store,
@@ -127,6 +133,22 @@ export class Translator {
     this.config = config;
     this.serializeAggregate = config.serializeAggregate ?? ((element) => element.innerHTML);
     this.ignorePredicate = config.ignorePredicate ?? { ignoreAttribute: '', ignoreSelectors: [] };
+    this.isUnrendered = config.isUnrendered ?? (() => false);
+  }
+
+  /**
+   * Is this unit worth reporting as a missing string? A mask the UI produced before its
+   * data arrived ("Level undefined") is not: it can never be looked up again — the same
+   * UI masks to "Level {{0}}" once the data lands, a different key — and it poisons
+   * machine translation downstream (see {@link isUnrenderedValue}).
+   *
+   * Nothing about the skip is recorded: no store entry, no pending node, no attribute. So
+   * when the component re-renders with real data, the correct mask is a first sighting and
+   * reports normally. A translation the consumer *has* supplied for such a key still
+   * applies — the gate is on reporting, not on lookup, and sits after the cache hit.
+   */
+  private isReportable(masked: string, originalText: string): boolean {
+    return !this.isUnrendered(masked, originalText);
   }
 
   /** Current displayed content of an element in its canonical string form. */
@@ -207,6 +229,10 @@ export class Translator {
       return;
     }
 
+    if (!this.isReportable(maskResult.masked, originalText)) {
+      return; // half-rendered: leave the text alone and report nothing
+    }
+
     // Build item before mutating the element so debug info captures original state
     const item = this.buildItem(cacheKey, originalText, maskResult.variables, element, 'text', scope);
 
@@ -283,6 +309,10 @@ export class Translator {
         element.setAttribute(originalAttrName, originalValue);
       }
       return;
+    }
+
+    if (!this.isReportable(maskResult.masked, originalValue)) {
+      return; // half-rendered: leave the attribute alone and report nothing
     }
 
     if (!entry) {
@@ -392,7 +422,7 @@ export class Translator {
       if (resolved) {
         this.applyTranslation(element, resolved, maskResult, originalText, isHtml, maskResult.casePattern, textNode);
       }
-    } else if (!entry) {
+    } else if (!entry && this.isReportable(maskResult.masked, originalText)) {
       const item = this.buildItem(cacheKey, originalText, maskResult.variables, element, 'text', scope);
       element.setAttribute(this.config.pendingAttribute, '');
       this.store.markPending(this.config.locale, cacheKey);
@@ -447,7 +477,7 @@ export class Translator {
           if (resolved) {
             this.applyAttributeTranslation(element, attr, resolved, maskResult, originalValue);
           }
-        } else if (!entry) {
+        } else if (!entry && this.isReportable(maskResult.masked, originalValue)) {
           const item = this.buildItem(cacheKey, originalValue, maskResult.variables, element, `attribute:${attr}`, scope);
           this.store.markPending(this.config.locale, cacheKey);
           const pendingNode: PendingNode = {
