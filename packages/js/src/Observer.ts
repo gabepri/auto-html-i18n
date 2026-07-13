@@ -83,13 +83,20 @@ export class Observer {
   }
 
   private handleMutations(mutations: MutationRecord[]): void {
+    // One batch, one dedupe scope. Everything this batch touches may climb to a shared
+    // aggregation target, which must be reported exactly once — but a target reported by
+    // an *earlier* batch (or by the initial scan) has to be reportable again now, because
+    // its content is precisely what just changed. Resetting per added element instead
+    // gets both halves wrong: it re-reports an ancestor two added siblings share, and it
+    // never resets at all for a batch that only moved text.
+    this.processedParents = new WeakSet<Element>();
+
     for (const mutation of mutations) {
       if (mutation.type === 'childList') {
         for (const node of mutation.addedNodes) {
           if (this.isInsideIgnored(node)) continue;
 
           if (node.nodeType === Node.ELEMENT_NODE) {
-            this.processedParents = new WeakSet<Element>();
             // isInsideIgnored above already cleared this node and its ancestors, which
             // is the precondition walk()'s self-only filter relies on.
             this.walk(node as Element);

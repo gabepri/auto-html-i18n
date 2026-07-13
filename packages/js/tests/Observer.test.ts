@@ -239,6 +239,82 @@ describe('Observer', () => {
     });
   });
 
+  /**
+   * The texts reported for one element. Reported directly rather than via
+   * toHaveBeenCalledWith, which also compares arity — the walk passes an explicit
+   * `undefined` third argument where the mutation path passes only two.
+   */
+  function textsFor(onTextFound: ReturnType<typeof vi.fn>, element: Element): string[] {
+    return onTextFound.mock.calls
+      .filter((call: unknown[]) => call[0] === element)
+      .map((call: unknown[]) => call[1] as string);
+  }
+
+  describe('aggregation targets across mutation batches', () => {
+    // processedParents dedupes aggregation targets *within one collection batch*: a
+    // sentence with several text nodes must be reported once, not once per node. It is
+    // scoped to that batch and nothing longer — an element the initial scan aggregated
+    // has to be reportable again when its content later changes.
+    it('re-aggregates a parent the initial scan already reported', async () => {
+      root.innerHTML = '<p>Hello <strong>there</strong></p>';
+      const { observer, onTextFound } = createObserver(root);
+      const para = root.querySelector('p')!;
+
+      observer.start();
+      // The initial scan aggregates the paragraph into one unit.
+      expect(textsFor(onTextFound, para)).toEqual(['Hello <strong>there</strong>']);
+      onTextFound.mockClear();
+
+      // A framework appends a bare text node into that same paragraph. A processedParents
+      // entry left over from the initial scan would swallow this entirely.
+      para.appendChild(document.createTextNode(' friend'));
+      await waitForMutations();
+
+      expect(textsFor(onTextFound, para)).toEqual(['Hello <strong>there</strong> friend']);
+
+      observer.stop();
+    });
+
+    it('reports an aggregation target once when several of its text nodes change together', async () => {
+      root.innerHTML = '<p>Hello <strong>there</strong></p>';
+      const { observer, onTextFound } = createObserver(root);
+      observer.start();
+      onTextFound.mockClear();
+
+      // Two text nodes land in the same paragraph in one batch — one aggregated unit.
+      const para = root.querySelector('p')!;
+      para.appendChild(document.createTextNode(' friend'));
+      para.appendChild(document.createTextNode(' indeed'));
+      await waitForMutations();
+
+      expect(textsFor(onTextFound, para)).toHaveLength(1);
+
+      observer.stop();
+    });
+
+    it('reports a shared aggregation ancestor once when several elements land in one batch', async () => {
+      root.innerHTML = '<p>Hello <strong>there</strong></p>';
+      const { observer, onTextFound } = createObserver(root);
+      observer.start();
+      onTextFound.mockClear();
+
+      // Two inline elements added to the same paragraph in one batch. Both climb to the
+      // same aggregation target, which must still be reported once — resetting the dedupe
+      // set per added element loses that.
+      const para = root.querySelector('p')!;
+      const em = document.createElement('em');
+      em.textContent = 'really';
+      const b = document.createElement('b');
+      b.textContent = 'truly';
+      para.append(em, b);
+      await waitForMutations();
+
+      expect(textsFor(onTextFound, para)).toHaveLength(1);
+
+      observer.stop();
+    });
+  });
+
   describe('mutation observation', () => {
     it('should detect new text nodes added to DOM', async () => {
       const { observer, onTextFound } = createObserver(root);
