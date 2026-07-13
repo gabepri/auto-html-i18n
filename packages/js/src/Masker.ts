@@ -113,7 +113,25 @@ export class Masker {
     // Phase 2: Mask variables (comments, non-allowed tags, ignoreWords, dates, numbers).
     // We skip the interior of normalized tag markers to avoid matching their index digits.
     const variables: VariableInfo[] = [];
-    let masked = '';
+    // Built from slices rather than char-by-char: `chunkStart` marks the start of
+    // the run of literal text not yet flushed into `parts`.
+    const parts: string[] = [];
+    let chunkStart = 0;
+    // The next variable match at or after the scan head. The regex is scanned
+    // forward lazily and its result cached: re-running exec() at every character
+    // position makes masking quadratic in the input length (each failed probe
+    // rescans the rest of the string), which is minutes of CPU on a long page.
+    // Recomputed only when we consume a match or jump the head past a stale one.
+    this.variableRegex.lastIndex = 0;
+    let nextMatch = this.variableRegex.exec(tagProcessed);
+    const advanceMatch = (from: number): void => {
+      this.variableRegex.lastIndex = from;
+      nextMatch = this.variableRegex.exec(tagProcessed);
+    };
+    const flushTo = (end: number): void => {
+      if (end > chunkStart) parts.push(tagProcessed.slice(chunkStart, end));
+    };
+
     let i = 0;
     while (i < tagProcessed.length) {
       // An ignored-subtree region (lifted out in phase 0) becomes one opaque
@@ -124,10 +142,10 @@ export class Masker {
         const closeIdx = tagProcessed.indexOf(IGNORE_CLOSE, i + 1);
         if (closeIdx !== -1) {
           const k = parseInt(tagProcessed.slice(i + 1, closeIdx), 10);
-          const index = variables.length;
+          flushTo(i);
+          parts.push(`{{${variables.length}}}`);
           variables.push({ value: ignoredValues[k] ?? '', type: 'ignored' });
-          masked += `{{${index}}}`;
-          i = closeIdx + 1;
+          i = chunkStart = closeIdx + 1;
           continue;
         }
       }
@@ -136,11 +154,10 @@ export class Masker {
       if (tagProcessed.startsWith('<!--', i)) {
         const closeIdx = tagProcessed.indexOf('-->', i + 4);
         if (closeIdx !== -1) {
-          const comment = tagProcessed.slice(i, closeIdx + 3);
-          const index = variables.length;
-          variables.push({ value: comment, type: 'comment' });
-          masked += `{{${index}}}`;
-          i = closeIdx + 3;
+          flushTo(i);
+          parts.push(`{{${variables.length}}}`);
+          variables.push({ value: tagProcessed.slice(i, closeIdx + 3), type: 'comment' });
+          i = chunkStart = closeIdx + 3;
           continue;
         }
       }
@@ -154,32 +171,37 @@ export class Masker {
           const tagText = tagProcessed.slice(i, closeIdx + 1);
           const markerMatch = /^<\/?([a-zA-Z][\w-]*)>$/.exec(tagText);
           if (markerMatch && tagAttributes.has(markerMatch[1]!)) {
-            masked += tagText;
+            // Verbatim: leave it in the current literal chunk.
+            i = closeIdx + 1;
           } else {
-            const index = variables.length;
+            flushTo(i);
+            parts.push(`{{${variables.length}}}`);
             variables.push({ value: tagText, type: 'markup' });
-            masked += `{{${index}}}`;
+            i = chunkStart = closeIdx + 1;
           }
-          i = closeIdx + 1;
           continue;
         }
       }
 
-      // Try to match variable regex at current position
-      this.variableRegex.lastIndex = i;
-      const match = this.variableRegex.exec(tagProcessed);
+      // A variable match, if one starts exactly here. `nextMatch` is a lookahead
+      // that only goes stale when the head jumps a tag/region it pointed into.
+      if (nextMatch !== null && nextMatch.index < i) {
+        advanceMatch(i);
+      }
 
-      if (match && match.index === i) {
-        const index = variables.length;
-        variables.push(this.buildVariableInfo(match));
-        masked += `{{${index}}}`;
-        i += match[0].length;
+      if (nextMatch !== null && nextMatch.index === i) {
+        flushTo(i);
+        parts.push(`{{${variables.length}}}`);
+        variables.push(this.buildVariableInfo(nextMatch));
+        i = chunkStart = i + nextMatch[0].length;
+        advanceMatch(i);
       } else {
-        // Copy character and advance
-        masked += tagProcessed[i];
+        // Literal character — stays in the pending chunk.
         i++;
       }
     }
+    flushTo(tagProcessed.length);
+    let masked = parts.join('');
 
     const casePattern = detectCasePattern(masked);
     if (casePattern === 'upper') {
