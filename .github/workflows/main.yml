@@ -27,6 +27,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run test
       - run: npm run build
+      - run: npm run size
 
   php:
     runs-on: ubuntu-latest

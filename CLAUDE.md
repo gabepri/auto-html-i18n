@@ -80,6 +80,16 @@ Tests live in `tests/` within each package. Coverage excludes barrel/type files 
 
 When changing Masker behavior, prefer adding a shared fixture (so both ports stay in sync) over a JS-only or PHP-only test.
 
+## Performance budgets
+
+This library runs on every text node of every mutation, on whatever device the consumer's users have. An algorithmic regression here is invisible in a profile ("it's just regex") and brutal on a low-end phone, so the hot paths are guarded by budgets that fail the build.
+
+- **JS: [tests/perf.budget.test.ts](packages/js/tests/perf.budget.test.ts)** asserts on *operation counts* — variable-regex scans per `mask()`, `matches()` calls per page scan, `mask()` calls per translatable unit, retained pending nodes. Counts are deterministic: they don't flake on a loaded CI runner, and they catch an algorithmic change the moment it lands. Prefer a counter over a timing assertion whenever you can find one.
+- **PHP: [tests/PerfBudgetTest.php](packages/php/tests/PerfBudgetTest.php)** has no way to count PCRE probes from userland, so it uses timing — but only as an *order-of-magnitude* guard, with margins ~50x over the real cost. It separates "linear" from "quadratic", nothing finer.
+- **Bundle size: `npm run size`** (in CI after `npm run build`) gates the gzipped dist. `intl-messageformat` is external and not counted; consumers still pay for it.
+
+**When a budget fails, make the code do less work — don't raise the number.** Raise a limit only deliberately, with the reason written down. The budgets exist because `Masker.mask()` once probed its variable regex at every character position, rescanning the remainder of the string on each miss: quadratic in input length, ~35ms of pure CPU to mask a single 1.2KB paragraph in JS. Nothing in the test suite noticed.
+
 **Fix bugs in every port, not just the one they were reported against.** This is one library implemented across the JS and PHP runtimes; a behavioral bug reported in one almost always exists in the other. When you fix one port, port the fix to the other in the same change (add a shared fixture for the Masker-level behavior; write port-specific end-to-end tests for the walker/observer glue), and only ship a port-specific fix when the behavior is genuinely runtime-specific — say so explicitly and note why the other port doesn't need it.
 
 ## Documentation

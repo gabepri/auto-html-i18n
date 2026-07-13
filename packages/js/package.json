@@ -26,6 +26,7 @@
     "dev": "vite",
     "build": "tsc -p tsconfig.build.json --noEmit && vite build",
     "test": "vitest run",
+    "size": "node scripts/check-size.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint src/ tests/",

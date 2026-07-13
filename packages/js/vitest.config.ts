@@ -15,10 +15,10 @@ export default defineConfig({
         // passing runs, and a drop below the recorded numbers fails the run.
         // Never hand-lower these without the maintainer's sign-off.
         autoUpdate: true,
-        branches: 89.48,
-        functions: 98.89,
-        lines: 98.14,
-        statements: 97.37,
+        branches: 90.32,
+        functions: 98.94,
+        lines: 98.29,
+        statements: 97.53,
       },
     },
   },

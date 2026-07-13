@@ -7,11 +7,14 @@ export class Observer {
   private allowedInlineTagsSet: Set<string>;
   private processedParents = new WeakSet<Element>();
   private ignorePredicate: IgnorePredicateConfig;
-  // Per-walk caches. Open only while a walk is *collecting* — the DOM is stable then,
-  // because callbacks (which may translate synchronously) fire after collection ends.
-  private ignoreMemo: Map<Element, boolean> | null = null;
-  private inlineMemo: Map<Element, boolean> | null = null;
-  private aggregateMemo: Map<Element, boolean> | null = null;
+  // Verdict caches, valid only while the DOM is known to be stable: for the whole of a
+  // walk's collection phase (callbacks, which may translate synchronously, fire only
+  // after it ends), and otherwise for the span of a single findAggregationTarget call.
+  // Cleared at both boundaries — they hold Element keys, so a stale one pins DOM.
+  private inWalk = false;
+  private ignoreMemo = new Map<Element, boolean>();
+  private inlineMemo = new Map<Element, boolean>();
+  private aggregateMemo = new Map<Element, boolean>();
 
   constructor(config: ObserverConfig) {
     this.config = config;
@@ -136,12 +139,10 @@ export class Observer {
       this.collectElementAttrs(root, attrItems);
     }
 
-    // Memoized for the collection phase only: a TreeWalker may consult its filter more
-    // than once for the same node, and each miss costs a matches() per ignoreSelector.
-    // Torn down before the callbacks run, since those mutate the DOM.
-    this.ignoreMemo = new Map<Element, boolean>();
-    this.inlineMemo = new Map<Element, boolean>();
-    this.aggregateMemo = new Map<Element, boolean>();
+    // Memoize for the collection phase: a TreeWalker may consult its filter more than
+    // once for the same node, and each miss costs a matches() per ignoreSelector.
+    this.inWalk = true;
+    this.clearMemos();
 
     const walker = document.createTreeWalker(
       root,
@@ -164,9 +165,10 @@ export class Observer {
       node = walker.nextNode();
     }
 
-    this.ignoreMemo = null;
-    this.inlineMemo = null;
-    this.aggregateMemo = null;
+    // Collection is done; the callbacks below mutate the DOM, so every verdict is now
+    // suspect. Dropping them also releases the Element keys.
+    this.inWalk = false;
+    this.clearMemos();
 
     for (const item of attrItems) {
       this.config.onAttributeFound(item.element, item.attr, item.value);
@@ -176,15 +178,18 @@ export class Observer {
     }
   }
 
-  /** Is this element itself an ignore boundary? Memoized while a walk is collecting. */
-  private isIgnored(element: Element): boolean {
-    const memo = this.ignoreMemo;
-    if (!memo) return isIgnoredElement(element, this.ignorePredicate);
+  private clearMemos(): void {
+    this.ignoreMemo.clear();
+    this.inlineMemo.clear();
+    this.aggregateMemo.clear();
+  }
 
-    let hit = memo.get(element);
+  /** Is this element itself an ignore boundary? Memoized for the current walk. */
+  private isIgnored(element: Element): boolean {
+    let hit = this.ignoreMemo.get(element);
     if (hit === undefined) {
       hit = isIgnoredElement(element, this.ignorePredicate);
-      memo.set(element, hit);
+      this.ignoreMemo.set(element, hit);
     }
     return hit;
   }
@@ -257,23 +262,24 @@ export class Observer {
    * ancestor's unit as inline markers, so only the outermost should be reported —
    * otherwise the inner content is collected twice.
    */
+  /**
+   * The outermost ancestor that aggregates as a formatted sentence, or null.
+   *
+   * Inside a walk the memos already span every node, which is where the redundancy
+   * lives: sibling text nodes of one paragraph, and every rung of the climb, otherwise
+   * rescan the same subtrees over and over. Called standalone (from the mutation path)
+   * the memos are only good for this one lookup — the DOM may have changed since the
+   * last — so they're cleared around it.
+   */
   private findAggregationTarget(element: Element): Element | null {
-    // Memoize the inline-ness verdicts for the duration of this lookup at minimum.
-    // Inside a walk the memos are already open and shared across every node, which is
-    // where the real redundancy lives: sibling text nodes of one paragraph, and every
-    // rung of the climb, otherwise rescan the same subtrees over and over.
-    const owned = this.inlineMemo === null;
-    if (owned) {
-      this.inlineMemo = new Map<Element, boolean>();
-      this.aggregateMemo = new Map<Element, boolean>();
+    if (this.inWalk) {
+      return this.climbToAggregationTarget(element);
     }
+    this.clearMemos();
     try {
       return this.climbToAggregationTarget(element);
     } finally {
-      if (owned) {
-        this.inlineMemo = null;
-        this.aggregateMemo = null;
-      }
+      this.clearMemos();
     }
   }
 
@@ -299,13 +305,10 @@ export class Observer {
   }
 
   private hasInlineChildElements(element: Element): boolean {
-    const memo = this.aggregateMemo;
-    if (!memo) return this.computeHasInlineChildElements(element);
-
-    let hit = memo.get(element);
+    let hit = this.aggregateMemo.get(element);
     if (hit === undefined) {
       hit = this.computeHasInlineChildElements(element);
-      memo.set(element, hit);
+      this.aggregateMemo.set(element, hit);
     }
     return hit;
   }
@@ -335,13 +338,10 @@ export class Observer {
 
   /** True when `element` and all of its descendant elements are allowed inline tags. */
   private isFullyInline(element: Element): boolean {
-    const memo = this.inlineMemo;
-    if (!memo) return this.computeFullyInline(element);
-
-    let hit = memo.get(element);
+    let hit = this.inlineMemo.get(element);
     if (hit === undefined) {
       hit = this.computeFullyInline(element);
-      memo.set(element, hit);
+      this.inlineMemo.set(element, hit);
     }
     return hit;
   }
