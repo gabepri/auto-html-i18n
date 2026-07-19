@@ -41,12 +41,19 @@ export class Observer {
       this.handleMutations(mutations);
     });
 
+    // extraObservedAttributes (translator signal attributes) widen the filter so
+    // their mutations reach onMutations; the attributes branch below still checks
+    // translatableAttributes, so they are never collected as content.
+    const attributeFilter = this.config.extraObservedAttributes?.length
+      ? [...new Set([...this.config.translatableAttributes, ...this.config.extraObservedAttributes])]
+      : this.config.translatableAttributes;
+
     this.mutationObserver.observe(this.config.rootElement, {
       childList: true,
       subtree: true,
       characterData: true,
       attributes: true,
-      attributeFilter: this.config.translatableAttributes,
+      attributeFilter,
     });
   }
 
@@ -83,6 +90,10 @@ export class Observer {
   }
 
   private handleMutations(mutations: MutationRecord[]): void {
+    // Signal evaluation sees the batch first, so a translator engaging in this
+    // very batch suppresses the collection of its own rewritten content below.
+    this.config.onMutations?.(mutations);
+
     // One batch, one dedupe scope. Everything this batch touches may climb to a shared
     // aggregation target, which must be reported exactly once — but a target reported by
     // an *earlier* batch (or by the initial scan) has to be reportable again now, because

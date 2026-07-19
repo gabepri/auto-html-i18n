@@ -41,8 +41,16 @@ export class Queue {
   }
 
   clear(): void {
+    this.drain();
+  }
+
+  // Remove and return everything queued without flushing it, so the caller can
+  // drop the entries and reset their pending state (external translator engaged).
+  drain(): TranslationItem[] {
     this.cancelTimer();
+    const items = Array.from(this.items.values());
     this.items.clear();
+    return items;
   }
 
   get pending(): number {

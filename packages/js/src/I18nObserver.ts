@@ -1,4 +1,4 @@
-import type { I18nConfig, I18nStatus, IcuValidationResult, IgnoreWordEntry, TextDirection, TranslationEntry, TranslationItem, UnrenderedValuePredicate, VariableInfo } from './types';
+import type { ExternalTranslationLevel, ExternalTranslatorSignal, I18nConfig, I18nStatus, IcuValidationResult, IgnoreWordEntry, TextDirection, TranslationEntry, TranslationItem, UnrenderedValuePredicate, VariableInfo } from './types';
 import { getLocaleDirection } from './direction';
 import { Store } from './Store';
 import { Queue } from './Queue';
@@ -7,6 +7,7 @@ import { Observer } from './Observer';
 import { Translator } from './Translator';
 import { isInsideIgnored, serializeAggregate, type IgnorePredicateConfig } from './ignore';
 import { isUnrenderedValue } from './unrendered';
+import { ExternalTranslationDetector, EXTERNAL_TRANSLATOR_SIGNALS } from './external';
 
 const DEFAULTS = {
   allowedInlineTags: ['a', 'b', 'i', 'u', 'strong', 'em', 'span', 'small', 'mark', 'del', 'sup', 'sub'],
@@ -24,6 +25,8 @@ const DEFAULTS = {
   manageDirection: false,
   skipUnrenderedValues: true,
   isUnrenderedValue,
+  externalTranslation: 'protect-translations' as ExternalTranslationLevel,
+  extraTranslatorSignals: [] as ExternalTranslatorSignal[],
   debug: false,
 };
 
@@ -38,6 +41,15 @@ export class I18nObserver {
   private config: Required<I18nConfig>;
   // dir/lang of directionElement before we first touched them; null = untouched
   private savedDirection: { dir: string | null; lang: string | null } | null = null;
+  // External-translator detection; null at 'allow' (evaluation skipped entirely)
+  private detector: ExternalTranslationDetector | null;
+  // Root state before 'block' stamped it; null = untouched. metaAdded is the meta
+  // element we inserted (null when the author already had one).
+  private savedRootBlock: {
+    translate: string | null;
+    hadNotranslateClass: boolean;
+    metaAdded: HTMLMetaElement | null;
+  } | null = null;
 
   constructor(userConfig: I18nConfig) {
     const config: Required<I18nConfig> = {
@@ -58,6 +70,8 @@ export class I18nObserver {
       directionElement: userConfig.directionElement ?? document.documentElement,
       skipUnrenderedValues: userConfig.skipUnrenderedValues ?? DEFAULTS.skipUnrenderedValues,
       isUnrenderedValue: userConfig.isUnrenderedValue ?? DEFAULTS.isUnrenderedValue,
+      externalTranslation: userConfig.externalTranslation ?? DEFAULTS.externalTranslation,
+      extraTranslatorSignals: userConfig.extraTranslatorSignals ?? DEFAULTS.extraTranslatorSignals,
       debug: userConfig.debug ?? DEFAULTS.debug,
       locale: userConfig.locale,
       onMissingTranslation: userConfig.onMissingTranslation,
@@ -82,24 +96,39 @@ export class I18nObserver {
       allowedInlineTags: config.allowedInlineTags,
     });
 
+    // External-translator detection ('suppress-reports' and up). On the
+    // transition to active, collected-but-unflushed entries are dropped, not
+    // flushed — junk comes exclusively from mutations after the rewrite.
+    this.detector = config.externalTranslation === 'allow'
+      ? null
+      : new ExternalTranslationDetector({
+          signals: [...EXTERNAL_TRANSLATOR_SIGNALS, ...config.extraTranslatorSignals],
+          onActivate: () => this.dropUnflushed(),
+        });
+
+    const translatorConfig = {
+      locale: config.locale,
+      originalAttribute: config.originalAttribute,
+      pendingAttribute: config.pendingAttribute,
+      keyAttribute: config.keyAttribute,
+      scopeAttribute: config.scopeAttribute,
+      translatableAttributes: config.translatableAttributes,
+      onMissingTranslation: config.onMissingTranslation,
+      debug: config.debug,
+      serializeAggregate: (element: Element) => serializeAggregate(element, ignorePredicate),
+      ignorePredicate,
+      isUnrendered,
+      isReportingSuppressed: () => this.detector?.isActive ?? false,
+      protectTranslations:
+        config.externalTranslation === 'protect-translations' || config.externalTranslation === 'block',
+    };
+
     this.translator = new Translator(
       this.store,
       // Queue placeholder — will be replaced below
       null as unknown as Queue,
       this.masker,
-      {
-        locale: config.locale,
-        originalAttribute: config.originalAttribute,
-        pendingAttribute: config.pendingAttribute,
-        keyAttribute: config.keyAttribute,
-        scopeAttribute: config.scopeAttribute,
-        translatableAttributes: config.translatableAttributes,
-        onMissingTranslation: config.onMissingTranslation,
-        debug: config.debug,
-        serializeAggregate: (element) => serializeAggregate(element, ignorePredicate),
-        ignorePredicate,
-        isUnrendered,
-      }
+      translatorConfig
     );
 
     this.queue = new Queue({
@@ -114,19 +143,7 @@ export class I18nObserver {
       this.store,
       this.queue,
       this.masker,
-      {
-        locale: config.locale,
-        originalAttribute: config.originalAttribute,
-        pendingAttribute: config.pendingAttribute,
-        keyAttribute: config.keyAttribute,
-        scopeAttribute: config.scopeAttribute,
-        translatableAttributes: config.translatableAttributes,
-        onMissingTranslation: config.onMissingTranslation,
-        debug: config.debug,
-        serializeAggregate: (element) => serializeAggregate(element, ignorePredicate),
-        ignorePredicate,
-        isUnrendered,
-      }
+      { ...translatorConfig }
     );
 
     this.observer = new Observer({
@@ -140,6 +157,8 @@ export class I18nObserver {
       ignoreAttribute: config.ignoreAttribute,
       onTextFound: (element, text, textNode) => this.translator.processText(element, text, textNode),
       onAttributeFound: (element, attr, value) => this.translator.processAttribute(element, attr, value),
+      extraObservedAttributes: this.detector?.observedAttributes,
+      onMutations: this.detector ? (mutations) => this.detector!.evaluateMutations(mutations) : undefined,
     });
 
     // Load initial cache
@@ -154,16 +173,23 @@ export class I18nObserver {
 
   start(): void {
     this.applyDirection();
+    // Root blocking must land before the first translation lands, and detection
+    // must precede the initial walk so an already-engaged translator (observer
+    // restarted mid-session) suppresses from the first collection onward.
+    this.applyRootBlock();
+    this.detector?.start();
     this.observer.start();
     this._status = 'observing';
   }
 
   stop(revert?: boolean): void {
     this.observer.stop();
+    this.detector?.stop();
     this.queue.clear();
     if (revert) {
       this.translator.revertAll();
       this.restoreDirection();
+      this.restoreRootBlock();
     }
     this._status = 'stopped';
   }
@@ -249,6 +275,69 @@ export class I18nObserver {
     this.savedDirection = null;
   }
 
+  /** Diagnostic snapshot of external-translator detection (always inactive at 'allow'). */
+  getExternalTranslationState(): { active: boolean; signals: string[] } {
+    return {
+      active: this.detector?.isActive ?? false,
+      signals: this.detector?.activeSignals ?? [],
+    };
+  }
+
+  // 'block' only. All three markers because support is uneven: the google meta
+  // alone is unreliable in recent Chrome (crbug 329233123); translate="no" is the
+  // W3C signal Edge and (partially) Firefox honor. Saves the prior root state so
+  // stop(true) restores exactly what the author had — independent of the
+  // manageDirection save/restore, which owns dir/lang on the same element.
+  private applyRootBlock(): void {
+    if (this.config.externalTranslation !== 'block') return;
+    const el = document.documentElement;
+    if (this.savedRootBlock === null) {
+      this.savedRootBlock = {
+        translate: el.getAttribute('translate'),
+        hadNotranslateClass: el.classList.contains('notranslate'),
+        metaAdded: null,
+      };
+    }
+    el.setAttribute('translate', 'no');
+    el.classList.add('notranslate');
+    if (!document.head.querySelector('meta[name="google"][content="notranslate"]')) {
+      const meta = document.createElement('meta');
+      meta.setAttribute('name', 'google');
+      meta.setAttribute('content', 'notranslate');
+      document.head.appendChild(meta);
+      this.savedRootBlock.metaAdded = meta;
+    }
+  }
+
+  private restoreRootBlock(): void {
+    if (this.savedRootBlock === null) return;
+    const el = document.documentElement;
+    const saved = this.savedRootBlock;
+    if (saved.translate === null) {
+      el.removeAttribute('translate');
+    } else {
+      el.setAttribute('translate', saved.translate);
+    }
+    if (!saved.hadNotranslateClass) el.classList.remove('notranslate');
+    saved.metaAdded?.remove();
+    this.savedRootBlock = null;
+  }
+
+  // An external translator just engaged: what sits in the queue may already be
+  // its rewritten output, so drop it. Resetting the pending state (not leaving it
+  // marked) lets the same string report normally once the state clears — e.g.
+  // after Chrome's "Show original".
+  private dropUnflushed(): void {
+    this.dropItems(this.queue.drain());
+  }
+
+  private dropItems(items: TranslationItem[]): void {
+    for (const item of items) {
+      this.store.resetIfPending(this.currentLocale, item.masked);
+      this.translator.dropPending(item.masked);
+    }
+  }
+
   /**
    * Dry-runs a translation string against the given variables, exactly as the
    * library would consume it. Defaults to the current locale.
@@ -293,6 +382,13 @@ export class I18nObserver {
   }
 
   private async handleFlush(items: TranslationItem[]): Promise<void> {
+    // Defense-in-depth behind the enqueue-time gate: a chunk reaching us after a
+    // translator engaged mid-flush must drop, not report.
+    if (this.detector?.isActive) {
+      this.dropItems(items);
+      return;
+    }
+
     // Re-validate against the current DOM: drop items whose tracked nodes all
     // became ignored or detached during the debounce window (portalled/late-
     // mounted content). See Translator.filterReportable.

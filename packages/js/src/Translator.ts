@@ -58,6 +58,21 @@ export interface TranslatorConfig {
    * Defaults to reporting everything (no gate) for callers that don't wire it up.
    */
   isUnrendered?: UnrenderedValuePredicate;
+  /**
+   * True while an external page translator is rewriting the page. While it is,
+   * cache misses are left alone in the DOM (the external translation handles
+   * them) and — like the unrendered gate — nothing is recorded about the skip,
+   * so the same string reports normally once the state clears. Gates reporting
+   * only; cache lookups and applies continue. Defaults to never suppressed.
+   */
+  isReportingSuppressed?: () => boolean;
+  /**
+   * When true, every element whose content or attribute we translate is marked
+   * `translate="no"` + `notranslate` in the same synchronous write as the text
+   * swap, so a browser translator won't re-translate our output. Untranslated
+   * content stays unmarked on purpose. Defaults to false for direct callers.
+   */
+  protectTranslations?: boolean;
 }
 
 interface PendingNode {
@@ -120,6 +135,14 @@ export class Translator {
   private serializeAggregate: (element: Element) => string;
   private ignorePredicate: IgnorePredicateConfig;
   private isUnrendered: UnrenderedValuePredicate;
+  private isReportingSuppressed: () => boolean;
+  // Which anti-translation markers WE added per element (author-supplied ones are
+  // never touched), so revertAll removes exactly ours. hadClassAttr guards
+  // against leaving behind a class="" the element never had.
+  private protectionMarks = new WeakMap<
+    Element,
+    { addedTranslate: boolean; addedClass: boolean; hadClassAttr: boolean }
+  >();
 
   constructor(
     store: Store,
@@ -134,6 +157,7 @@ export class Translator {
     this.serializeAggregate = config.serializeAggregate ?? ((element) => element.innerHTML);
     this.ignorePredicate = config.ignorePredicate ?? { ignoreAttribute: '', ignoreSelectors: [] };
     this.isUnrendered = config.isUnrendered ?? (() => false);
+    this.isReportingSuppressed = config.isReportingSuppressed ?? (() => false);
   }
 
   /**
@@ -232,6 +256,9 @@ export class Translator {
     if (!this.isReportable(maskResult.masked, originalText)) {
       return; // half-rendered: leave the text alone and report nothing
     }
+    if (this.isReportingSuppressed()) {
+      return; // external translator active: leave the miss to it, record nothing
+    }
 
     // Build item before mutating the element so debug info captures original state
     const item = this.buildItem(cacheKey, originalText, maskResult.variables, element, 'text', scope);
@@ -319,6 +346,9 @@ export class Translator {
 
     if (!this.isReportable(maskResult.masked, originalValue)) {
       return; // half-rendered: leave the attribute alone and report nothing
+    }
+    if (this.isReportingSuppressed()) {
+      return; // external translator active: leave the miss to it, record nothing
     }
 
     if (entry && entry.status === 'reported') {
@@ -448,7 +478,7 @@ export class Translator {
       if (resolved) {
         this.applyTranslation(element, resolved, maskResult, originalText, isHtml, maskResult.casePattern, textNode);
       }
-    } else if (!entry && this.isReportable(maskResult.masked, originalText)) {
+    } else if (!entry && this.isReportable(maskResult.masked, originalText) && !this.isReportingSuppressed()) {
       const item = this.buildItem(cacheKey, originalText, maskResult.variables, element, 'text', scope);
       element.setAttribute(this.config.pendingAttribute, '');
       this.store.markPending(this.config.locale, cacheKey);
@@ -503,7 +533,7 @@ export class Translator {
           if (resolved) {
             this.applyAttributeTranslation(element, attr, resolved, maskResult, originalValue);
           }
-        } else if (!entry && this.isReportable(maskResult.masked, originalValue)) {
+        } else if (!entry && this.isReportable(maskResult.masked, originalValue) && !this.isReportingSuppressed()) {
           const item = this.buildItem(cacheKey, originalValue, maskResult.variables, element, `attribute:${attr}`, scope);
           this.store.markPending(this.config.locale, cacheKey);
           const pendingNode: PendingNode = {
@@ -566,6 +596,7 @@ export class Translator {
       }
       element.removeAttribute(this.config.originalAttribute);
       element.removeAttribute(this.config.pendingAttribute);
+      this.unprotectElement(element);
       this.lastApplied.delete(element);
     }
 
@@ -583,6 +614,7 @@ export class Translator {
           this.lastAppliedAttrs.get(element)?.delete(attr);
         }
         element.removeAttribute(originalAttrName);
+        this.unprotectElement(element);
       }
     }
 
@@ -701,7 +733,42 @@ export class Translator {
     if (textNode) this.syncOriginalAttribute(element);
     else element.setAttribute(this.config.originalAttribute, originalText);
     element.removeAttribute(this.config.pendingAttribute);
+    this.protectElement(element);
     this.recordAppliedOutput(textNode ? output : this.lastApplied.get(element)!, originalText);
+  }
+
+  // Mark an element whose unit we just translated so a browser translator skips
+  // it, in the same synchronous block as the content write (external translators
+  // process mutations asynchronously afterwards, so the marker is seen in time).
+  // An author's existing `translate` attribute is never overwritten — an explicit
+  // translate="yes" is the author opting that element in. These writes never echo
+  // into collection: the observer's attribute filter carries only
+  // translatable/signal attributes, never `translate`/`class`.
+  private protectElement(element: Element): void {
+    if (!this.config.protectTranslations) return;
+    if (this.protectionMarks.has(element)) return;
+    const addedTranslate = !element.hasAttribute('translate');
+    if (addedTranslate) element.setAttribute('translate', 'no');
+    const hadClassAttr = element.hasAttribute('class');
+    const addedClass = !element.classList.contains('notranslate');
+    if (addedClass) element.classList.add('notranslate');
+    this.protectionMarks.set(element, { addedTranslate, addedClass, hadClassAttr });
+  }
+
+  /** Remove exactly the anti-translation markers we added; author-supplied ones stay. */
+  private unprotectElement(element: Element): void {
+    const marks = this.protectionMarks.get(element);
+    if (!marks) return;
+    if (marks.addedTranslate && element.getAttribute('translate') === 'no') {
+      element.removeAttribute('translate');
+    }
+    if (marks.addedClass) {
+      element.classList.remove('notranslate');
+      if (!marks.hadClassAttr && element.getAttribute('class') === '') {
+        element.removeAttribute('class');
+      }
+    }
+    this.protectionMarks.delete(element);
   }
 
   /**
@@ -1132,6 +1199,7 @@ export class Translator {
     const unmasked = this.masker.unmask(value, maskResult.variables, maskResult.tagAttributes, this.config.locale, originalValue);
     const output = maskResult.leadingWhitespace + this.masker.applyCasePattern(unmasked, maskResult.casePattern) + maskResult.trailingWhitespace;
     element.setAttribute(attr, output);
+    this.protectElement(element);
 
     this.attrMapFor(element).set(attr, output);
     this.recordAppliedOutput(output, originalValue);
