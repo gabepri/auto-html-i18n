@@ -790,6 +790,24 @@ describe('Masker', () => {
       expect(result).toBe('5 ovejas');
     });
 
+    it('should reach the universal locale when the degraded primary subtag is also rejected', () => {
+      const masker = createMasker();
+      // '123-456' is ill-formed, and so is its primary subtag '123' — unlike
+      // '419', which is its own primary subtag and so skips the middle step.
+      // This exercises the second degradation attempt failing with a RangeError
+      // before falling through to 'und'. Port-specific: the terminal step's
+      // locale resolution differs between the JS and PHP ICU engines, so this
+      // is deliberately not a shared fixture.
+      const result = masker.unmask(
+        '{0, plural, one {# oveja} other {# ovejas}}',
+        [v('5', 'number')],
+        new Map(),
+        '123-456',
+        '5 sheep'
+      );
+      expect(result).toBe('5 ovejas');
+    });
+
     it('should keep rendering the translation for a wholly invalid locale (never the original)', () => {
       const masker = createMasker();
       // The exact plural category at the terminal step follows the runtime's
@@ -876,6 +894,24 @@ describe('Masker', () => {
         '419'
       );
       expect(result).toEqual({ valid: true, format: 'icu', output: '5 ovejas' });
+    });
+
+    it('should report a non-Error failure as a string rather than throwing', () => {
+      const masker = createMasker();
+      // validateIcu is a dry run: it must never throw, whatever the evaluation
+      // raises. A variable whose accessor throws a bare string is the cheapest
+      // way to make the ICU evaluation fail with a non-Error value.
+      const hostile = {
+        type: 'ignoreWord',
+        get value(): string {
+          throw 'boom';
+        },
+      } as unknown as VariableInfo;
+
+      const result = masker.validateIcu('{0} sheep', [hostile], 'es');
+      expect(result.valid).toBe(false);
+      expect(result.format).toBe('icu');
+      expect(result.error).toBe('boom');
     });
   });
 

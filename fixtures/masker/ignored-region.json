@@ -74,5 +74,13 @@
         }
       ]
     }
+  },
+  {
+    "name": "an unpaired ignore-open sentinel is left as literal text",
+    "input": "stray \ue000region",
+    "expected": {
+      "masked": "stray \ue000region",
+      "variables": []
+    }
   }
 ]

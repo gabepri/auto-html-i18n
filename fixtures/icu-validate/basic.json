@@ -71,5 +71,25 @@
     "variables": [{ "value": "5", "type": "number" }],
     "locale": "es-41",
     "expected": { "valid": true, "format": "icu", "output": "5 ovejas" }
+  },
+  {
+    "name": "simple substitution restores ignored and markup variables verbatim",
+    "translated": "{{0}} y {{1}}",
+    "variables": [
+      {
+        "value": "<span data-i18n-ignore>Ann</span>",
+        "type": "ignored"
+      },
+      {
+        "value": "<input value=\"a\">",
+        "type": "markup"
+      }
+    ],
+    "locale": "es",
+    "expected": {
+      "valid": true,
+      "format": "simple",
+      "output": "<span data-i18n-ignore>Ann</span> y <input value=\"a\">"
+    }
   }
 ]

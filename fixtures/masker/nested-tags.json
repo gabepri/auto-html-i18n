@@ -34,5 +34,21 @@
       "variables": [],
       "tagAttributes": { "span0": {}, "span1": {}, "span2": {} }
     }
+  },
+  {
+    "name": "a closing tag with no matching opener on the stack stays raw (masked as markup)",
+    "input": "<b>bold</i> text</b>",
+    "expected": {
+      "masked": "<b0>bold{{0}} text</b0>",
+      "variables": [
+        {
+          "value": "</i>",
+          "type": "markup"
+        }
+      ],
+      "tagAttributes": {
+        "b0": {}
+      }
+    }
   }
 ]

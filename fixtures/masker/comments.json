@@ -50,5 +50,13 @@
         "span1": { "class": "y" }
       }
     }
+  },
+  {
+    "name": "an unterminated comment opener is literal text, not a comment variable",
+    "input": "a <!-- unterminated",
+    "expected": {
+      "masked": "a <!-- unterminated",
+      "variables": []
+    }
   }
 ]

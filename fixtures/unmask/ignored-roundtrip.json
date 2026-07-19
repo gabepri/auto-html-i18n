@@ -49,5 +49,21 @@
     ],
     "locale": "he",
     "expected": "<span data-i18n-ignore>Kailey</span> \u05e9\u05dc\u05d5\u05dd"
+  },
+  {
+    "name": "an ignored variable substituted into an ICU pattern is restored verbatim",
+    "translated": "{1, plural, other {# cosas}} de {0}",
+    "variables": [
+      {
+        "value": "<span data-i18n-ignore>Ann</span>",
+        "type": "ignored"
+      },
+      {
+        "value": "3",
+        "type": "number"
+      }
+    ],
+    "locale": "es",
+    "expected": "3 cosas de <span data-i18n-ignore>Ann</span>"
   }
 ]
