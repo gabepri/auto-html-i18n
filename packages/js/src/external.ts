@@ -2,7 +2,7 @@ import type { ExternalTranslatorSignal } from './types';
 
 // Built-in translator signals — pure data; the detector engine below is generic,
 // so supporting another translator means appending one entry (or passing
-// `extraTranslatorSignals`), never touching engine code. Translators with no DOM
+// `translatorSignals` in config), never touching engine code. Translators with no DOM
 // footprint (Safari, DeepL) are accepted residual risk: their junk stays visible
 // in reports by design, rather than being guessed at with language filtering.
 export const EXTERNAL_TRANSLATOR_SIGNALS: ExternalTranslatorSignal[] = [

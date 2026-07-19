@@ -17,7 +17,10 @@ import type { TranslationItem } from '../src/types';
  */
 
 const ALLOWED_INLINE_TAGS = ['a', 'b', 'i', 'u', 'strong', 'em', 'span', 'small', 'mark', 'del'];
+// Function form: used verbatim, so the budget below is measured against exactly these
+// five selectors and doesn't drift as DEFAULT_IGNORE_SELECTORS grows.
 const IGNORE_SELECTORS = ['.no-i18n', '[data-skip]', 'code', 'script', 'style'];
+const ONLY_IGNORE_SELECTORS = () => IGNORE_SELECTORS;
 
 function makeMasker(): Masker {
   return new Masker({ ignoreWords: ['Acme', 'Widget Pro'], allowedInlineTags: ALLOWED_INLINE_TAGS });
@@ -120,7 +123,7 @@ describe('performance budgets', () => {
       const i18n = new I18nObserver({
         locale: 'es',
         rootElement: root,
-        ignoreSelectors: IGNORE_SELECTORS,
+        ignoreSelectors: ONLY_IGNORE_SELECTORS,
         onMissingTranslation: (items) =>
           Promise.resolve(Object.fromEntries(items.map((i) => [i.masked, `ES ${i.masked}`]))),
       });
@@ -155,7 +158,7 @@ describe('performance budgets', () => {
       const i18n = new I18nObserver({
         locale: 'es',
         rootElement: root,
-        ignoreSelectors: IGNORE_SELECTORS,
+        ignoreSelectors: ONLY_IGNORE_SELECTORS,
         onMissingTranslation: (items) => {
           reported.push(...items);
           return Promise.resolve(Object.fromEntries(items.map((i) => [i.masked, `ES ${i.masked}`])));
@@ -183,7 +186,7 @@ describe('performance budgets', () => {
       const i18n = new I18nObserver({
         locale: 'es',
         rootElement: root,
-        ignoreSelectors: IGNORE_SELECTORS,
+        ignoreSelectors: ONLY_IGNORE_SELECTORS,
         onMissingTranslation: () => Promise.resolve({}),
       });
       buildPage(root, 25, 6);

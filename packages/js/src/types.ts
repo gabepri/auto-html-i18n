@@ -48,13 +48,31 @@ export type TextDirection = 'ltr' | 'rtl';
 
 // ---- Configuration Types ----
 
+/**
+ * How every list-valued config option is supplied. One convention, no per-option flags:
+ *
+ * - A plain array is **unioned** with the library's defaults (deduplicated), so you get
+ *   "all the defaults plus mine" without knowing what the defaults are — and you keep
+ *   inheriting entries added in later releases.
+ * - A function gets the defaults and its return value is used **verbatim**, for removing
+ *   one entry (`(d) => d.filter(s => s !== 'code')`), reordering, or replacing the list
+ *   outright (`() => ['mine']`).
+ *
+ * Each option's defaults are exported as a named constant (e.g. `DEFAULT_IGNORE_SELECTORS`).
+ */
+export type ListOption<T> = T[] | ((defaults: T[]) => T[]);
+
 export interface I18nConfig {
   locale: string;
   onMissingTranslation: OnMissingTranslationCallback;
-  allowedInlineTags?: string[];
-  translatableAttributes?: string[];
-  ignoreSelectors?: string[];
-  ignoreWords?: IgnoreWordEntry[];
+  /** {@link ListOption} over `DEFAULT_ALLOWED_INLINE_TAGS`. */
+  allowedInlineTags?: ListOption<string>;
+  /** {@link ListOption} over `DEFAULT_TRANSLATABLE_ATTRIBUTES`. */
+  translatableAttributes?: ListOption<string>;
+  /** {@link ListOption} over `DEFAULT_IGNORE_SELECTORS`. */
+  ignoreSelectors?: ListOption<string>;
+  /** {@link ListOption} over `DEFAULT_IGNORE_WORDS` (empty by default). */
+  ignoreWords?: ListOption<IgnoreWordEntry>;
   initialCache?: Record<string, TranslationEntry>;
   rootElement?: HTMLElement;
   debounceTime?: number;
@@ -88,13 +106,28 @@ export interface I18nConfig {
    */
   externalTranslation?: ExternalTranslationLevel;
   /**
-   * Consumer-supplied translator signals evaluated alongside the built-in
-   * `EXTERNAL_TRANSLATOR_SIGNALS`, so a new translator can be reacted to without
-   * a library release. Ignored at `externalTranslation: 'allow'`.
+   * Translator signals evaluated by the detector, so a new translator can be reacted
+   * to without a library release. A {@link ListOption} over `EXTERNAL_TRANSLATOR_SIGNALS`,
+   * deduplicated by `id` (yours wins). Ignored at `externalTranslation: 'allow'`.
    */
-  extraTranslatorSignals?: ExternalTranslatorSignal[];
+  translatorSignals?: ListOption<ExternalTranslatorSignal>;
   debug?: boolean;
 }
+
+/**
+ * {@link I18nConfig} after defaults are applied and every {@link ListOption} has been
+ * resolved to a concrete list — the shape the internals consume.
+ */
+export type ResolvedI18nConfig = Omit<
+  Required<I18nConfig>,
+  'allowedInlineTags' | 'translatableAttributes' | 'ignoreSelectors' | 'ignoreWords' | 'translatorSignals'
+> & {
+  allowedInlineTags: string[];
+  translatableAttributes: string[];
+  ignoreSelectors: string[];
+  ignoreWords: IgnoreWordEntry[];
+  translatorSignals: ExternalTranslatorSignal[];
+};
 
 /** Decides whether a mask is an artifact of a half-rendered UI and must not be reported. */
 export type UnrenderedValuePredicate = (masked: string, original: string) => boolean;
@@ -126,7 +159,7 @@ export type ExternalTranslationLevel = 'allow' | 'suppress-reports' | 'protect-t
  * generic engine evaluating these against the mutation stream the observer already
  * processes (plus one attribute observer on the root element): supporting another
  * translator means appending a constant to `EXTERNAL_TRANSLATOR_SIGNALS` — or
- * passing `extraTranslatorSignals` in config — never touching engine code.
+ * passing `translatorSignals` in config — never touching engine code.
  */
 export interface ExternalTranslatorSignal {
   /** Stable identifier, e.g. 'chrome-translate'; surfaced in the debug state. */

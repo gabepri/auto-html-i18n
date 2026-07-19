@@ -286,11 +286,11 @@ describe('externalTranslation', () => {
     expect(onMissing).not.toHaveBeenCalled();
   });
 
-  it('consumer-supplied signal via extraTranslatorSignals activates detection', async () => {
+  it('consumer-supplied signal unioned into translatorSignals activates detection', async () => {
     root.innerHTML = '<p>Before</p>';
     const { i18n, onMissing } = createI18n({
       externalTranslation: 'suppress-reports',
-      extraTranslatorSignals: [{ id: 'custom', rootClasses: ['acme-translated'] }],
+      translatorSignals: [{ id: 'custom', rootClasses: ['acme-translated'] }],
     });
 
     i18n.start();
@@ -304,6 +304,46 @@ describe('externalTranslation', () => {
 
     expect(onMissing).not.toHaveBeenCalled();
     expect(i18n.getExternalTranslationState()).toEqual({ active: true, signals: ['custom'] });
+  });
+
+  it('a plain translatorSignals array keeps the built-in signals active too', async () => {
+    root.innerHTML = '<p>Before</p>';
+    const { i18n } = createI18n({
+      externalTranslation: 'suppress-reports',
+      translatorSignals: [{ id: 'custom', rootClasses: ['acme-translated'] }],
+    });
+
+    i18n.start();
+    await flush();
+
+    // 'chrome-translate' is a default — it must survive the union.
+    document.documentElement.classList.add('translated-ltr');
+    await flush();
+
+    expect(i18n.getExternalTranslationState()).toEqual({ active: true, signals: ['chrome-translate'] });
+  });
+
+  it('function-form translatorSignals replaces the registry verbatim, dedupes by id', async () => {
+    root.innerHTML = '<p>Before</p>';
+    const { i18n } = createI18n({
+      externalTranslation: 'suppress-reports',
+      // Drop the built-in chrome signal and re-point it at a class of our own.
+      translatorSignals: (defaults) => [
+        ...defaults.filter((s) => s.id !== 'chrome-translate'),
+        { id: 'chrome-translate', rootClasses: ['custom'] },
+      ],
+    });
+
+    i18n.start();
+    await flush();
+
+    document.documentElement.classList.add('translated-ltr');
+    await flush();
+    expect(i18n.getExternalTranslationState()).toEqual({ active: false, signals: [] });
+
+    document.documentElement.classList.add('custom');
+    await flush();
+    expect(i18n.getExternalTranslationState()).toEqual({ active: true, signals: ['chrome-translate'] });
   });
 
   it("'protect-translations': a translated element gains both markers; an untranslated sibling gains neither", async () => {

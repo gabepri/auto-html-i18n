@@ -89,16 +89,18 @@ i18n.start();
 
 ## ⚙️ Configuration
 
-The `I18nObserver` constructor accepts a config object with the following properties:
+The `I18nObserver` constructor accepts a config object with the following properties.
+
+**List-valued options add to the library defaults rather than replacing them** — passing `ignoreSelectors: ['.mine']` gives you the defaults *plus* `.mine`. Pass a function instead when you need to remove a default or replace the list outright. See [List-valued options](#-list-valued-options).
 
 | Option | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `locale` | `string` | **Required** | The target language code (e.g., 'en', 'fr', 'ja'). |
 | `onMissingTranslation` | `function` | **Required** | Async function called when text is not in cache. Receives `(items[], locale)`. Return a Map/Object to apply translations, or `null` to take no action. If the callback throws, the affected elements remain in their pending state and the error is logged to the console. |
-| `allowedInlineTags` | `string[]` | `['a', 'b', 'i', 'u', 'strong', 'em', 'span', 'small', 'mark', 'del', 'sup', 'sub']` | HTML tags that are considered part of the sentence structure. |
-| `translatableAttributes` | `string[]` | `['title', 'placeholder', 'alt', 'aria-label']` | HTML attributes to translate alongside text nodes. |
-| `ignoreSelectors` | `string[]` | `['script', 'style', 'code']` | CSS selectors to ignore. Content inside these elements will never be observed or translated. |
-| `ignoreWords` | `IgnoreWordEntry[]` | `[]` | Proper nouns or terms to treat as variables. Each entry can be a plain string (e.g., `'Google'`) or an object with metadata (e.g., `{ word: 'Mary', meta: { gender: 'female' } }`). Metadata is passed to ICU MessageFormat evaluation as `{N_key}` arguments. |
+| `allowedInlineTags` | [`ListOption<string>`](#-list-valued-options) | `DEFAULT_ALLOWED_INLINE_TAGS` (`a`, `b`, `i`, `u`, `strong`, `em`, `span`, `small`, `mark`, `del`, `sup`, `sub`) | HTML tags that are considered part of the sentence structure. **Added to** the defaults; pass a function to remove or replace them. |
+| `translatableAttributes` | [`ListOption<string>`](#-list-valued-options) | `DEFAULT_TRANSLATABLE_ATTRIBUTES` (`title`, `placeholder`, `alt`, `aria-label`) | HTML attributes to translate alongside text nodes. **Added to** the defaults; pass a function to remove or replace them. |
+| `ignoreSelectors` | [`ListOption<string>`](#-list-valued-options) | `DEFAULT_IGNORE_SELECTORS` (`script`, `style`, `code` + browser-extension UI containers) | CSS selectors to ignore. Content inside these elements will never be observed or translated. **Added to** the defaults; pass a function to remove or replace them. |
+| `ignoreWords` | [`ListOption<IgnoreWordEntry>`](#-list-valued-options) | `[]` | **Added to** the defaults (empty). Proper nouns or terms to treat as variables. Each entry can be a plain string (e.g., `'Google'`) or an object with metadata (e.g., `{ word: 'Mary', meta: { gender: 'female' } }`). Metadata is passed to ICU MessageFormat evaluation as `{N_key}` arguments. |
 | `initialCache` | `object` | `{}` | A dictionary of pre-loaded translations keyed by masked string (e.g., `{ "Hello {{0}}": "Hola {{0}}" }`). Values can be plain strings, ICU MessageFormat patterns, or scope-keyed objects (see [Scoped Translations](#-scoped-translations)). |
 | `rootElement` | `HTMLElement` | `document.body` | The DOM element to observe. Use this to scope translation to a specific subtree. |
 | `debounceTime` | `number` | `200` | Time in ms to wait before batching requests. |
@@ -113,8 +115,52 @@ The `I18nObserver` constructor accepts a config object with the following proper
 | `skipUnrenderedValues` | `boolean` | `true` | Never report strings a component painted before its data arrived (`"Level undefined"`, `"about NaN minutes"`, `"results for ''"`). They render as-is but are withheld from `onMissingTranslation`. See [Half-rendered values](#-half-rendered-values). |
 | `isUnrenderedValue` | `(masked: string, original: string) => boolean` | built-in | Overrides the half-rendered detection. Use it if your copy legitimately contains `null`/`undefined`/empty quotes. Ignored when `skipUnrenderedValues` is `false`. |
 | `externalTranslation` | `'allow' \| 'suppress-reports' \| 'protect-translations' \| 'block'` | `'protect-translations'` | How hard to push back on browser page translation (Chrome/Edge auto-translate, translation extensions). Levels are cumulative. See [Browser auto-translation](#-browser-auto-translation). |
-| `extraTranslatorSignals` | `ExternalTranslatorSignal[]` | `[]` | Consumer-supplied detection signals evaluated alongside the built-in registry, so you can react to a new translator without waiting for a library release. See [Browser auto-translation](#-browser-auto-translation). |
+| `translatorSignals` | [`ListOption<ExternalTranslatorSignal>`](#-list-valued-options) | `EXTERNAL_TRANSLATOR_SIGNALS` (Chrome, Edge, Immersive Translate) | **Added to** the defaults (deduplicated by `id`); pass a function to remove or replace them. Detection signals, so you can react to a new translator without waiting for a library release. See [Browser auto-translation](#-browser-auto-translation). |
 | `debug` | `boolean` | `false` | When enabled, each item in `onMissingTranslation` includes a `debug` field with DOM context for bug reporting. See [Debugging](#-debugging). |
+
+### 📋 List-valued options
+
+Every list-valued option (`allowedInlineTags`, `translatableAttributes`, `ignoreSelectors`, `ignoreWords`, `translatorSignals`) follows **one** convention — there are no `extra*`/`inherit*` variants and no per-option flags:
+
+**To add** — pass a plain array. It's unioned with the defaults and deduplicated, so you get every default plus your entries, and you keep inheriting entries added in future releases without touching your config:
+
+```js
+ignoreSelectors: ['.chart-live-region', '#legal-name']
+```
+
+**To remove, reorder, or replace** — pass a function. It receives the defaults and its return value is used **verbatim**, with no further merging:
+
+```js
+// Drop one default, keep the rest (including future additions).
+ignoreSelectors: (defaults) => defaults.filter((s) => s !== 'code')
+
+// Drop several.
+ignoreSelectors: (defaults) => defaults.filter((s) => !['code', 'style'].includes(s))
+
+// Drop one default and add your own in the same pass.
+ignoreSelectors: (defaults) => [...defaults.filter((s) => s !== 'code'), '.chart-live-region']
+
+// Ignore the defaults entirely — this list is used exactly as written.
+ignoreSelectors: () => ['.only-this']
+```
+
+For object lists, filter on the identifying field rather than the whole entry:
+
+```js
+translatorSignals: (defaults) => defaults.filter((s) => s.id !== 'immersive-translate')
+```
+
+Removal matches on exact value, so check what you're filtering against — each option's defaults are exported (see below), and `console.log(DEFAULT_IGNORE_SELECTORS)` beats guessing. A filter that matches nothing silently leaves the list unchanged.
+
+Strings dedupe by value; object entries dedupe by their identifying field (`id` for translator signals, `word` for ignore words), with your entry winning over the default it collides with while keeping the default's position.
+
+Each option's defaults are exported as a named constant — `DEFAULT_IGNORE_SELECTORS`, `DEFAULT_ALLOWED_INLINE_TAGS`, `DEFAULT_TRANSLATABLE_ATTRIBUTES`, `DEFAULT_IGNORE_WORDS`, `EXTERNAL_TRANSLATOR_SIGNALS` — so you can inspect or compose with them:
+
+```js
+import { I18nObserver, DEFAULT_IGNORE_SELECTORS } from 'auto-html-i18n';
+```
+
+`DEFAULT_IGNORE_SELECTORS` covers the obvious non-copy elements (`script`, `style`, `code`) **and** the containers browser extensions inject into your page — 1Password, LastPass and Grammarly. Extension UI is localized to the *user's* language and is never your copy, so without this it gets collected and reported as missing source text. This list grows as new extensions are observed in production, which is exactly why the plain-array form inherits rather than replaces.
 
 ### The `onMissingTranslation` Item Object
 
@@ -755,7 +801,8 @@ You can react to a new translator without a library release:
 const i18n = new I18nObserver({
   // ...
   externalTranslation: 'protect-translations',
-  extraTranslatorSignals: [
+  // Plain array: unioned with EXTERNAL_TRANSLATOR_SIGNALS, so the built-ins stay active.
+  translatorSignals: [
     { id: 'acme-translate', rootClasses: ['acme-translated'], sticky: false },
   ],
 });
