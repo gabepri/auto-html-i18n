@@ -97,5 +97,34 @@
       "tagAttributes": { "a0": { "href": "https://google.com" } },
       "casePattern": "mixed"
     }
+  },
+  {
+    "name": "a self-closing allowed tag has no pair and is masked as opaque markup",
+    "input": "Save<b/>now",
+    "expected": {
+      "masked": "Save{{0}}now",
+      "variables": [
+        {
+          "value": "<b/>",
+          "type": "markup"
+        }
+      ],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "single-quoted, unquoted and valueless attributes are all captured",
+    "input": "<a href='/x' target=_blank hidden>go</a>",
+    "expected": {
+      "masked": "<a0>go</a0>",
+      "variables": [],
+      "tagAttributes": {
+        "a0": {
+          "href": "/x",
+          "target": "_blank",
+          "hidden": ""
+        }
+      }
+    }
   }
 ]
