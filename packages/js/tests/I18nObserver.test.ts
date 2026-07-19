@@ -488,6 +488,13 @@ describe('I18nObserver', () => {
       expect(i18n.translate('Hello {{0}}', ['World'])).toBe('Hola World');
     });
 
+    it('should leave a placeholder untouched when no variable was supplied for it', () => {
+      const i18n = new I18nObserver(createConfig({
+        initialCache: { 'Hello {{0}} and {{1}}': 'Hola {{0}} y {{1}}' },
+      }));
+      expect(i18n.translate('Hello {{0}} and {{1}}', ['World'])).toBe('Hola World y {{1}}');
+    });
+
     it('should return original text if no translation found', () => {
       const i18n = new I18nObserver(createConfig());
       expect(i18n.translate('Unknown text')).toBe('Unknown text');

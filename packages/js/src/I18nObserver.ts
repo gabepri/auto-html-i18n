@@ -1,4 +1,12 @@
-import type { ExternalTranslationLevel, ExternalTranslatorSignal, I18nConfig, I18nStatus, IcuValidationResult, IgnoreWordEntry, TextDirection, TranslationEntry, TranslationItem, UnrenderedValuePredicate, VariableInfo } from './types';
+import type { ExternalTranslationLevel, I18nConfig, I18nStatus, IcuValidationResult, IgnoreWordEntry, ResolvedI18nConfig, TextDirection, TranslationEntry, TranslationItem, UnrenderedValuePredicate, VariableInfo } from './types';
+import {
+  DEFAULT_ALLOWED_INLINE_TAGS,
+  DEFAULT_IGNORE_SELECTORS,
+  DEFAULT_IGNORE_WORDS,
+  DEFAULT_TRANSLATABLE_ATTRIBUTES,
+  ignoreWordKey,
+} from './defaults';
+import { resolveListOption } from './listOption';
 import { getLocaleDirection } from './direction';
 import { Store } from './Store';
 import { Queue } from './Queue';
@@ -10,10 +18,6 @@ import { isUnrenderedValue } from './unrendered';
 import { ExternalTranslationDetector, EXTERNAL_TRANSLATOR_SIGNALS } from './external';
 
 const DEFAULTS = {
-  allowedInlineTags: ['a', 'b', 'i', 'u', 'strong', 'em', 'span', 'small', 'mark', 'del', 'sup', 'sub'],
-  translatableAttributes: ['title', 'placeholder', 'alt', 'aria-label'],
-  ignoreSelectors: ['script', 'style', 'code'],
-  ignoreWords: [] as string[],
   initialCache: {} as Record<string, TranslationEntry>,
   debounceTime: 200,
   maxBatchSize: 50,
@@ -26,7 +30,6 @@ const DEFAULTS = {
   skipUnrenderedValues: true,
   isUnrenderedValue,
   externalTranslation: 'protect-translations' as ExternalTranslationLevel,
-  extraTranslatorSignals: [] as ExternalTranslatorSignal[],
   debug: false,
 };
 
@@ -38,7 +41,7 @@ export class I18nObserver {
   private translator: Translator;
   private currentLocale: string;
   private _status: I18nStatus = 'idle';
-  private config: Required<I18nConfig>;
+  private config: ResolvedI18nConfig;
   // dir/lang of directionElement before we first touched them; null = untouched
   private savedDirection: { dir: string | null; lang: string | null } | null = null;
   // External-translator detection; null at 'allow' (evaluation skipped entirely)
@@ -52,11 +55,21 @@ export class I18nObserver {
   } | null = null;
 
   constructor(userConfig: I18nConfig) {
-    const config: Required<I18nConfig> = {
-      allowedInlineTags: userConfig.allowedInlineTags ?? DEFAULTS.allowedInlineTags,
-      translatableAttributes: userConfig.translatableAttributes ?? DEFAULTS.translatableAttributes,
-      ignoreSelectors: userConfig.ignoreSelectors ?? DEFAULTS.ignoreSelectors,
-      ignoreWords: userConfig.ignoreWords ?? DEFAULTS.ignoreWords,
+    // Every list-valued option goes through the one resolver: plain array unions with
+    // the exported defaults, function form takes full control. See {@link ListOption}.
+    const config: ResolvedI18nConfig = {
+      allowedInlineTags: resolveListOption(userConfig.allowedInlineTags, DEFAULT_ALLOWED_INLINE_TAGS),
+      translatableAttributes: resolveListOption(
+        userConfig.translatableAttributes,
+        DEFAULT_TRANSLATABLE_ATTRIBUTES
+      ),
+      ignoreSelectors: resolveListOption(userConfig.ignoreSelectors, DEFAULT_IGNORE_SELECTORS),
+      ignoreWords: resolveListOption(userConfig.ignoreWords, DEFAULT_IGNORE_WORDS, ignoreWordKey),
+      translatorSignals: resolveListOption(
+        userConfig.translatorSignals,
+        EXTERNAL_TRANSLATOR_SIGNALS,
+        (signal) => signal.id
+      ),
       initialCache: userConfig.initialCache ?? DEFAULTS.initialCache,
       rootElement: userConfig.rootElement ?? document.body,
       debounceTime: userConfig.debounceTime ?? DEFAULTS.debounceTime,
@@ -71,7 +84,6 @@ export class I18nObserver {
       skipUnrenderedValues: userConfig.skipUnrenderedValues ?? DEFAULTS.skipUnrenderedValues,
       isUnrenderedValue: userConfig.isUnrenderedValue ?? DEFAULTS.isUnrenderedValue,
       externalTranslation: userConfig.externalTranslation ?? DEFAULTS.externalTranslation,
-      extraTranslatorSignals: userConfig.extraTranslatorSignals ?? DEFAULTS.extraTranslatorSignals,
       debug: userConfig.debug ?? DEFAULTS.debug,
       locale: userConfig.locale,
       onMissingTranslation: userConfig.onMissingTranslation,
@@ -102,7 +114,7 @@ export class I18nObserver {
     this.detector = config.externalTranslation === 'allow'
       ? null
       : new ExternalTranslationDetector({
-          signals: [...EXTERNAL_TRANSLATOR_SIGNALS, ...config.extraTranslatorSignals],
+          signals: config.translatorSignals,
           onActivate: () => this.dropUnflushed(),
         });
 
