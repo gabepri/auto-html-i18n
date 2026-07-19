@@ -29,12 +29,29 @@ npm run typecheck      # TypeScript strict type checking
 ### PHP package — run from `packages/php/`
 
 ```bash
-composer install              # Install dependencies
-vendor/bin/phpunit            # Run the test suite
-vendor/bin/phpunit --coverage-text  # With coverage (requires xdebug or pcov)
+composer install         # Install dependencies
+composer test            # Run the test suite (PHPUnit)
+composer test:coverage   # Tests with a text coverage report
+composer analyse         # PHPStan static analysis (src/ + tests/)
+composer lint            # PHP-CS-Fixer style check (@PSR12 + declare_strict_types), no writes
+composer lint:fix        # PHP-CS-Fixer auto-fix
 ```
 
-CI runs both packages in parallel: JS on Node 18/20/22, PHP on 8.1/8.2/8.3.
+Coverage **requires** `XDEBUG_MODE=coverage` — Xdebug 3 defaults to `develop` mode, so a plain
+`vendor/bin/phpunit --coverage-text` silently reports nothing. `composer test:coverage` sets it for you.
+
+PHPStan is pinned at **level 3** in [phpstan.neon.dist](packages/php/phpstan.neon.dist) — the highest
+level that passes with no errors and no baseline. Level 4 (dead code) collides with the package's
+defensive guards; the exact blockers and the path to level 9 are enumerated in the PHP README's
+"Static analysis level" section. **Never add a PHPStan baseline to raise the number** — fix the code
+or leave the level where it is.
+
+`composer lint` is currently non-blocking in CI: the codebase predates the config and 7 of 27 files
+differ by a single PSR-12 rule (`fn(` → `fn (`). Run `composer lint:fix` as its own commit, then drop
+`continue-on-error` from the `php-quality` job.
+
+CI runs both packages in parallel: JS on Node 18/20/22, PHP on 8.1/8.2/8.3, plus a single-version
+`php-quality` job for `analyse` + `lint` (style and static analysis don't vary per PHP version).
 
 ## Architecture
 

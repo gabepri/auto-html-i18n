@@ -47,4 +47,24 @@ jobs:
       - uses: ramsey/composer-install@v4
         with:
           working-directory: packages/php
-      - run: vendor/bin/phpunit
+      - run: composer test
+
+  # Style and static analysis don't vary by PHP version, so they run once
+  # instead of across the 8.1/8.2/8.3 matrix.
+  php-quality:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/php
+    steps:
+      - uses: actions/checkout@v5
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: intl, mbstring
+          coverage: none
+      - uses: ramsey/composer-install@v4
+        with:
+          working-directory: packages/php
+      - run: composer analyse
+      - run: composer lint
