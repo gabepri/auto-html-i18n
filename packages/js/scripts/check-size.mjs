@@ -20,7 +20,10 @@ import { fileURLToPath } from 'node:url';
 const pkgRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const BUDGETS = [
-  { file: 'dist/auto-html-i18n.js', maxGzip: 20 * 1024 },
+  // 20 -> 22KB with the externalTranslation feature (browser-translator detection
+  // engine + graduated coexistence levels): +2.6KB in this unminified-with-comments
+  // ESM, +1.4KB minified (see the CJS). Deliberate raise, not drift.
+  { file: 'dist/auto-html-i18n.js', maxGzip: 22 * 1024 },
   { file: 'dist/auto-html-i18n.cjs', maxGzip: 13 * 1024 },
 ];
 

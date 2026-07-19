@@ -3,6 +3,9 @@ export { getLocaleDirection } from './direction';
 // The default half-rendered-value predicate, exported so a consumer can compose with
 // (rather than replace) it in `isUnrenderedValue`.
 export { isUnrenderedValue } from './unrendered';
+// The built-in translator signal registry, exported so a consumer composing
+// `extraTranslatorSignals` can see (and reference) what ships by default.
+export { EXTERNAL_TRANSLATOR_SIGNALS } from './external';
 export type {
   TextDirection,
   I18nConfig,
@@ -18,4 +21,6 @@ export type {
   IcuValidationResult,
   TranslationFormat,
   UnrenderedValuePredicate,
+  ExternalTranslationLevel,
+  ExternalTranslatorSignal,
 } from './types';

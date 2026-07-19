@@ -81,11 +81,69 @@ export interface I18nConfig {
    * is false.
    */
   isUnrenderedValue?: UnrenderedValuePredicate;
+  /**
+   * How to coexist with external/browser page translation (Chrome auto-translate,
+   * Edge, translation extensions). Defaults to `'protect-translations'`.
+   * See {@link ExternalTranslationLevel}.
+   */
+  externalTranslation?: ExternalTranslationLevel;
+  /**
+   * Consumer-supplied translator signals evaluated alongside the built-in
+   * `EXTERNAL_TRANSLATOR_SIGNALS`, so a new translator can be reacted to without
+   * a library release. Ignored at `externalTranslation: 'allow'`.
+   */
+  extraTranslatorSignals?: ExternalTranslatorSignal[];
   debug?: boolean;
 }
 
 /** Decides whether a mask is an artifact of a half-rendered UI and must not be reported. */
 export type UnrenderedValuePredicate = (masked: string, original: string) => boolean;
+
+// ---- External translation coexistence ----
+
+/**
+ * How hard to push back on an external page translator (Chrome/Edge auto-translate,
+ * translation extensions). Levels are cumulative — each includes everything below it:
+ *
+ * - `'allow'`: do nothing (pre-existing behavior; detection is skipped entirely).
+ * - `'suppress-reports'`: detect an engaged translator and stop reporting missing
+ *   translations while it is active — its rewritten output would otherwise be
+ *   collected as bogus "source" strings. Cache lookups and applying our own
+ *   translations continue.
+ * - `'protect-translations'` (default): additionally mark every element we translate
+ *   with `translate="no"` + the `notranslate` class so the browser re-translates
+ *   neither our output; untranslated content stays unmarked on purpose so the
+ *   browser may translate it.
+ * - `'block'`: additionally stamp `document.documentElement` with `translate="no"`,
+ *   the `notranslate` class and the `<meta name="google" content="notranslate">`
+ *   head tag at start, opting the whole page out of external translation. Not the
+ *   default because it strands users whose languages the consumer doesn't serve.
+ */
+export type ExternalTranslationLevel = 'allow' | 'suppress-reports' | 'protect-translations' | 'block';
+
+/**
+ * Declarative description of one known external page translator. Detection is a
+ * generic engine evaluating these against the mutation stream the observer already
+ * processes (plus one attribute observer on the root element): supporting another
+ * translator means appending a constant to `EXTERNAL_TRANSLATOR_SIGNALS` — or
+ * passing `extraTranslatorSignals` in config — never touching engine code.
+ */
+export interface ExternalTranslatorSignal {
+  /** Stable identifier, e.g. 'chrome-translate'; surfaced in the debug state. */
+  id: string;
+  /**
+   * Classes the tool stamps on `document.documentElement` while engaged. Presence
+   * activates the signal; for non-sticky signals, removal clears it again (the only
+   * signal kind that can self-clear).
+   */
+  rootClasses?: string[];
+  /** Attribute names the tool stamps on elements it rewrites, seen as attribute mutations. */
+  mutationAttributes?: string[];
+  /** Selector matching nodes the tool injects into the page (checked on added nodes and their subtrees). */
+  insertedNodeSelector?: string;
+  /** Once seen, the signal stays active for the session — for tools with no reliable off-signal. */
+  sticky?: boolean;
+}
 
 // ---- Masker Types ----
 
@@ -152,5 +210,13 @@ export interface ObserverConfig {
   /** `textNode` is the specific leaf Text node the unit lives in; absent for aggregated (innerHTML) units. */
   onTextFound: (element: Element, text: string, textNode?: Text) => void;
   onAttributeFound: (element: Element, attr: string, value: string) => void;
+  /**
+   * Attribute names to observe on top of `translatableAttributes` — mutations on
+   * them reach `onMutations` but are never treated as translatable content. Used
+   * for external-translator signal attributes.
+   */
+  extraObservedAttributes?: string[];
+  /** Sees every mutation batch before it is processed (external-translator signal evaluation). */
+  onMutations?: (mutations: MutationRecord[]) => void;
 }
 

@@ -24,6 +24,7 @@ It features **Smart Masking**, **Inline Tag Support**, and **ICU MessageFormat**
 - [Performance](#-performance)
 - [Security](#-security)
 - [Half-rendered values](#-half-rendered-values)
+- [Browser auto-translation](#-browser-auto-translation)
 - [Debugging](#-debugging)
 - [Framework Integration](#-framework-integration)
 - [Contributors Guide](#-contributors-guide)
@@ -111,6 +112,8 @@ The `I18nObserver` constructor accepts a config object with the following proper
 | `directionElement` | `HTMLElement` | `document.documentElement` | The element whose `dir`/`lang` are managed when `manageDirection` is enabled. Point it at your widget's root when translating an embedded subtree. |
 | `skipUnrenderedValues` | `boolean` | `true` | Never report strings a component painted before its data arrived (`"Level undefined"`, `"about NaN minutes"`, `"results for ''"`). They render as-is but are withheld from `onMissingTranslation`. See [Half-rendered values](#-half-rendered-values). |
 | `isUnrenderedValue` | `(masked: string, original: string) => boolean` | built-in | Overrides the half-rendered detection. Use it if your copy legitimately contains `null`/`undefined`/empty quotes. Ignored when `skipUnrenderedValues` is `false`. |
+| `externalTranslation` | `'allow' \| 'suppress-reports' \| 'protect-translations' \| 'block'` | `'protect-translations'` | How hard to push back on browser page translation (Chrome/Edge auto-translate, translation extensions). Levels are cumulative. See [Browser auto-translation](#-browser-auto-translation). |
+| `extraTranslatorSignals` | `ExternalTranslatorSignal[]` | `[]` | Consumer-supplied detection signals evaluated alongside the built-in registry, so you can react to a new translator without waiting for a library release. See [Browser auto-translation](#-browser-auto-translation). |
 | `debug` | `boolean` | `false` | When enabled, each item in `onMissingTranslation` includes a `debug` field with DOM context for bug reporting. See [Debugging](#-debugging). |
 
 ### The `onMissingTranslation` Item Object
@@ -280,6 +283,14 @@ Returns the writing direction (`'ltr'` or `'rtl'`) of the given locale, defaulti
 ```javascript
 i18n.getDirection();        // 'rtl' when the current locale is e.g. 'he-IL'
 i18n.getDirection('ar-EG'); // 'rtl'
+```
+
+### `getExternalTranslationState()`
+
+Diagnostic snapshot of browser-translation detection: whether the page is currently considered externally translated, and by which signal id(s). Always inactive at `externalTranslation: 'allow'`, where detection is skipped. See [Browser auto-translation](#-browser-auto-translation).
+
+```javascript
+i18n.getExternalTranslationState(); // { active: true, signals: ['chrome-translate'] }
 ```
 
 ### `translate(text, variables?, scope?)`
@@ -710,6 +721,49 @@ const i18n = new I18nObserver({
 ```
 
 A translation you *have* supplied for such a key still applies — the gate is on reporting, not on lookup.
+
+---
+
+## 🌐 Browser auto-translation
+
+First paint is your source language, so a browser can classify the page as untranslated and auto-run its own translation over it (Chrome does this without a prompt for users with "Always translate" enabled). The browser then rewrites the DOM — and without countermeasures the observer re-collects that rewritten text and reports it to `onMissingTranslation` as bogus "missing source" strings: the translate widget's own UI, transliterated brand names, user data baked into masks.
+
+Browser translation is not inherently the enemy, though. For strings your cache doesn't have yet, and for locales you don't support at all, it's a useful fallback the user opted into. The `externalTranslation` option decides how much to push back. Levels are cumulative — each includes everything above it:
+
+| Level | Adds |
+| :--- | :--- |
+| `'allow'` | Nothing — pre-existing behavior. Detection is skipped entirely. |
+| `'suppress-reports'` | Detects an engaged translator and stops reporting while it's active. Entries collected but not yet flushed when it engages are dropped, not flushed (reports sent *before* it engaged were genuine source). Cache lookups and applying your own translations continue; cache misses are left alone in the DOM for the browser to handle. Reporting resumes when the state clears (where the translator has an off-signal). |
+| `'protect-translations'` **(default)** | Marks every element the library translates with `translate="no"` + the `notranslate` class, in the same synchronous write as the text swap, so the browser doesn't re-translate *our* output mid-session. Untranslated content stays unmarked on purpose — the browser may translate it. `stop(true)` removes exactly the markers we added; author-supplied `translate` attributes and `notranslate` classes are never touched. |
+| `'block'` | Stamps `document.documentElement` with `translate="no"` + `notranslate` and inserts `<meta name="google" content="notranslate">` at `start()`, opting the whole page out. `stop(true)` restores the exact prior root state. Not the default because it strands users whose languages you don't serve. Suppression stays active underneath as defense-in-depth — the root block is not airtight in every browser. |
+
+### Detection signals
+
+Detection is a declarative registry, not per-vendor code. Built-in signals:
+
+| Id | Detects | Clears again? |
+| :--- | :--- | :--- |
+| `chrome-translate` | `translated-ltr`/`translated-rtl` classes Chrome stamps on `<html>` | Yes — removed on "Show original" |
+| `edge-translate` | Proprietary attributes (`_msttexthash`, …) Edge stamps on rewritten elements | No — sticky for the session |
+| `immersive-translate` | Bilingual nodes the Immersive Translate extension appends below originals | No — sticky for the session |
+
+Translators with no detectable DOM footprint (Safari's built-in translation, DeepL's extension) are accepted residual risk: their output stays visible in your reports **by design** — the library deliberately never filters reports by language or script, which would also hide real bugs.
+
+You can react to a new translator without a library release:
+
+```js
+const i18n = new I18nObserver({
+  // ...
+  externalTranslation: 'protect-translations',
+  extraTranslatorSignals: [
+    { id: 'acme-translate', rootClasses: ['acme-translated'], sticky: false },
+  ],
+});
+
+i18n.getExternalTranslationState(); // { active: true, signals: ['acme-translate'] }
+```
+
+A signal can declare `rootClasses` (classes on `document.documentElement`; presence toggles it, and it's the only kind that can clear itself), `mutationAttributes` (attribute names the tool stamps on elements it rewrites), and/or `insertedNodeSelector` (nodes the tool injects). `sticky: true` keeps it active for the session once seen. Evaluation rides the mutation stream the observer already processes plus one class observer on the root element — there are no extra DOM scans.
 
 ---
 
