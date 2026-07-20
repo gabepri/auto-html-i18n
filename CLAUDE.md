@@ -40,15 +40,16 @@ composer lint:fix        # PHP-CS-Fixer auto-fix
 Coverage **requires** `XDEBUG_MODE=coverage` — Xdebug 3 defaults to `develop` mode, so a plain
 `vendor/bin/phpunit --coverage-text` silently reports nothing. `composer test:coverage` sets it for you.
 
-PHPStan is pinned at **level 3** in [phpstan.neon.dist](packages/php/phpstan.neon.dist) — the highest
-level that passes with no errors and no baseline. Level 4 (dead code) collides with the package's
-defensive guards; the exact blockers and the path to level 9 are enumerated in the PHP README's
-"Static analysis level" section. **Never add a PHPStan baseline to raise the number** — fix the code
-or leave the level where it is.
+PHPStan is pinned at **level 9** in [phpstan.neon.dist](packages/php/phpstan.neon.dist) — the highest
+level that passes with no errors and no baseline. What blocks level 10 is enumerated in the PHP
+README's "Static analysis level" section. **Never add a PHPStan baseline to raise the number** — fix
+the code or leave the level where it is.
 
-`composer lint` is currently non-blocking in CI: the codebase predates the config and 7 of 27 files
-differ by a single PSR-12 rule (`fn(` → `fn (`). Run `composer lint:fix` as its own commit, then drop
-`continue-on-error` from the `php-quality` job.
+Guards that defend against *vendor* return types whose PHPDoc claims they are impossible
+(`HTML5::loadHTMLFragment()`, `MessageFormatter::create()`) are kept deliberately — an annotation is
+not a runtime guarantee — and cleared via `treatPhpDocTypesAsCertain: false` rather than deleted.
+
+`composer lint` and `composer analyse` are both blocking in CI.
 
 CI runs both packages in parallel: JS on Node 18/20/22, PHP on 8.1/8.2/8.3, plus a single-version
 `php-quality` job for `analyse` + `lint` (style and static analysis don't vary per PHP version).
