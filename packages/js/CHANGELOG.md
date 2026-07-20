@@ -1,10 +1,18 @@
 # Changelog
 
-## Unreleased
+## 1.3.0
 
 ### List-valued options extend the defaults instead of replacing them
 
 A plain array passed to any list-valued option is now **unioned** with the library defaults, deduplicated. Previously it replaced them, so adding one selector silently dropped `script`/`style`/`code` and froze you out of every default added later.
+
+> **Upgrading with a narrowed `allowedInlineTags`? Read this.** That option feeds the cache key: a tag *in* the list masks to an inline marker (`<b0>text</b0>`), a tag *outside* it masks to an opaque variable (`{{0}}text{{1}}`). Because a plain array now inherits the defaults, any tag you previously excluded by omission becomes allowed — which **changes the cache key for affected content and misses your existing translations**, re-reporting them through `onMissingTranslation`. To keep v1.2.x keys exactly, switch to the function form, which is used verbatim:
+>
+> ```js
+> new I18nObserver({ allowedInlineTags: () => ['b', 'i'] }); // exactly these, as before
+> ```
+>
+> The other list options (`ignoreSelectors`, `translatableAttributes`, `ignoreWords`, `translatorSignals`) do not affect cache keys and need no action.
 
 ```js
 new I18nObserver({ ignoreSelectors: ['.mine'] });        // defaults + '.mine'
