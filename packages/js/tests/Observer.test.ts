@@ -430,6 +430,20 @@ describe('Observer', () => {
 
       observer.stop();
     });
+
+    it('skips an element whose originalAttribute is empty', () => {
+      root.innerHTML = '<p data-i18n-original="">Hola</p><p data-i18n-original="Bye">Adiós</p>';
+      const { observer, onTextFound } = createObserver(root);
+      observer.start();
+      onTextFound.mockClear();
+
+      observer.reprocessAll();
+
+      expect(onTextFound).toHaveBeenCalledTimes(1);
+      expect(onTextFound.mock.calls[0]![1]).toBe('Bye');
+
+      observer.stop();
+    });
   });
 
   describe('ignoreAttribute', () => {
@@ -923,6 +937,122 @@ describe('Observer', () => {
 
       const texts = onTextFound.mock.calls.map((c) => c[1]);
       expect(texts).not.toContain('Hello <strong>there</strong> friend');
+    });
+  });
+  describe('mutation and walk edge cases', () => {
+    it('ignores an added node that is neither an element nor a text node', async () => {
+      const { observer, onTextFound } = createObserver(root);
+      observer.start();
+      onTextFound.mockClear();
+
+      root.appendChild(document.createComment('a comment'));
+      await waitForMutations();
+
+      expect(onTextFound).not.toHaveBeenCalled();
+      observer.stop();
+    });
+
+    it('ignores a characterData change inside an ignored subtree', async () => {
+      root.innerHTML = '<code>let a = 1;</code>';
+      const { observer, onTextFound } = createObserver(root);
+      observer.start();
+      onTextFound.mockClear();
+
+      root.querySelector('code')!.firstChild!.textContent = 'let a = 2;';
+      await waitForMutations();
+
+      expect(onTextFound).not.toHaveBeenCalled();
+      observer.stop();
+    });
+
+    it('ignores a characterData change that leaves only whitespace', async () => {
+      root.innerHTML = '<p>Hello</p>';
+      const { observer, onTextFound } = createObserver(root);
+      observer.start();
+      onTextFound.mockClear();
+
+      root.querySelector('p')!.firstChild!.textContent = '   ';
+      await waitForMutations();
+
+      expect(onTextFound).not.toHaveBeenCalled();
+      observer.stop();
+    });
+
+    it('ignores an added text node that was detached again before delivery', async () => {
+      const { observer, onTextFound } = createObserver(root);
+      observer.start();
+      onTextFound.mockClear();
+
+      // The childList record still carries the node in addedNodes, but by the time
+      // the batch is delivered it has no parent element any more.
+      const textNode = document.createTextNode('Transient');
+      root.appendChild(textNode);
+      root.removeChild(textNode);
+      await waitForMutations();
+
+      expect(textNode.parentElement).toBeNull();
+      expect(onTextFound).not.toHaveBeenCalled();
+      observer.stop();
+    });
+
+    it('ignores an attribute change on an ignored element', async () => {
+      root.innerHTML = '<code title="old">x</code>';
+      const { observer, onAttributeFound } = createObserver(root);
+      observer.start();
+      onAttributeFound.mockClear();
+
+      root.querySelector('code')!.setAttribute('title', 'new');
+      await waitForMutations();
+
+      expect(onAttributeFound).not.toHaveBeenCalled();
+      observer.stop();
+    });
+
+    it('ignores an attribute change to a blank value', async () => {
+      root.innerHTML = '<p title="old">x</p>';
+      const { observer, onAttributeFound } = createObserver(root);
+      observer.start();
+      onAttributeFound.mockClear();
+
+      root.querySelector('p')!.setAttribute('title', '   ');
+      await waitForMutations();
+
+      expect(onAttributeFound).not.toHaveBeenCalled();
+      observer.stop();
+    });
+
+    it('ignores a mutation record of an unhandled type', () => {
+      const { observer, onTextFound, onAttributeFound } = createObserver(root);
+      // MutationObserver only emits childList/characterData/attributes, so the
+      // final else of the dispatch chain needs a synthetic record to reach.
+      const record = {
+        type: 'somethingElse',
+        target: document.createDocumentFragment(),
+        addedNodes: [] as unknown as NodeList,
+      } as unknown as MutationRecord;
+      (
+        observer as unknown as { handleMutations: (m: MutationRecord[]) => void }
+      ).handleMutations([record]);
+
+      expect(onTextFound).not.toHaveBeenCalled();
+      expect(onAttributeFound).not.toHaveBeenCalled();
+    });
+
+    it('walks a non-element root and skips text nodes with no parent element', () => {
+      const fragment = document.createDocumentFragment();
+      // Direct text child of a fragment: parentNode is the fragment, parentElement null.
+      const orphan = document.createTextNode('Orphan');
+      fragment.appendChild(orphan);
+      const p = document.createElement('p');
+      p.textContent = 'Inside';
+      fragment.appendChild(p);
+
+      const { observer, onTextFound } = createObserver(root);
+      observer.processSubtree(fragment);
+
+      expect(orphan.parentElement).toBeNull();
+      const texts = onTextFound.mock.calls.map((c) => c[1]);
+      expect(texts).toEqual(['Inside']);
     });
   });
 });

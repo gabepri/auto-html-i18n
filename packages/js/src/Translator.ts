@@ -1003,13 +1003,17 @@ export class Translator {
       const te = t as Element;
 
       if (te.tagName.toLowerCase() === IGNORED_PLACEHOLDER_TAG) {
-        const k = parseInt(te.getAttribute('data-k') ?? '', 10);
-        const liveNode = Number.isNaN(k) ? undefined : liveIgnored[k];
+        const k = this.ignoredSlotIndex(te, ignoredValues.length);
+        // Not one of ours (see {@link ignoredSlotIndex}) — claim nothing. The live
+        // element is unclaimed, so arrangeChildren treats it as structural and
+        // leaves it in place, untouched.
+        if (k === null) continue;
+        const liveNode = liveIgnored[k];
         if (liveNode) {
           ordered.push(liveNode);
         } else {
           // No live counterpart survived — reconstruct from the verbatim masked markup.
-          const rebuilt = this.parseFragment(ignoredValues[k] ?? '');
+          const rebuilt = this.parseFragment(ignoredValues[k]!);
           for (const rn of Array.from(rebuilt.childNodes)) ordered.push(rn);
         }
         continue;
@@ -1134,22 +1138,48 @@ export class Translator {
    * Replaces each `<i18n-ignored data-k>` placeholder in `fragment` with the
    * corresponding live ignored DOM node from `element` (node-preservation
    * invariant). When no live node survives, reconstruct the subtree from the
-   * masked variable's verbatim markup so the output is still correct.
+   * masked variable's verbatim markup so the output is still correct. An element
+   * that merely squats on the reserved tag name resolves to no slot and is left
+   * alone — matching the reconcile path, which leaves it in place as unclaimed.
    */
   private restoreIgnoredNodes(element: Element, fragment: DocumentFragment, variables: VariableInfo[]): void {
     const live = collectTopLevelIgnored(element, this.ignorePredicate);
     const ignoredValues = variables.filter((v) => v.type === 'ignored').map((v) => v.value);
     const placeholders = fragment.querySelectorAll(IGNORED_PLACEHOLDER_TAG);
     for (const placeholder of placeholders) {
-      const k = parseInt(placeholder.getAttribute('data-k') ?? '', 10);
-      const liveNode = Number.isNaN(k) ? undefined : live[k];
+      const k = this.ignoredSlotIndex(placeholder, ignoredValues.length);
+      if (k === null) continue; // not ours — never touch author markup
+      const liveNode = live[k];
       if (liveNode) {
         placeholder.replaceWith(liveNode);
       } else {
-        const rebuilt = this.parseFragment(ignoredValues[k] ?? '');
+        const rebuilt = this.parseFragment(ignoredValues[k]!);
         placeholder.replaceWith(...Array.from(rebuilt.childNodes));
       }
     }
+  }
+
+  /**
+   * The ignored-slot index an `<i18n-ignored>` element in the output fragment
+   * refers to, or `null` when it is not one of ours.
+   *
+   * The tag name is reserved for the library's own placeholder, but nothing stops
+   * an author's source HTML from using it: such an element is masked as two
+   * ordinary `markup` variables and restored verbatim, so it reaches the apply
+   * paths looking like a placeholder but carrying no (or a nonsensical) `data-k`.
+   * Both a missing/non-numeric `data-k` and one out of range for this unit's
+   * ignored variables mean "not a slot" — callers must then leave the element
+   * exactly as it is. Dropping it would be silent loss of author content, and
+   * throwing is not an option: this runs on every mutation of a live page.
+   *
+   * JS-only: the PHP port never emits this placeholder (it brackets ignored
+   * subtrees with U+FFFD sentinels and re-serializes), so there is nothing to
+   * collide with and no counterpart fix to make there.
+   */
+  private ignoredSlotIndex(placeholder: Element, slotCount: number): number | null {
+    // NaN (absent or non-numeric `data-k`) fails `>= 0`, so one range test covers both.
+    const k = parseInt(placeholder.getAttribute('data-k') ?? '', 10);
+    return k >= 0 && k < slotCount ? k : null;
   }
 
   /**

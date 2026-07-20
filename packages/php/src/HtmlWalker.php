@@ -63,10 +63,10 @@ final class HtmlWalker
      * Parse an HTML fragment, walk it, invoke callbacks for each translatable text/attribute, then serialize.
      *
      * Both callbacks receive the DOM node (so the caller can write back) and the relevant data:
-     *   onText(DOMElement $element, string $text, ?string $scope, ?string $keyOverride, bool $isInnerHtml)
+     *   onText(DOMElement $element, string $text, ?string $scope, ?string $keyOverride, bool $isInnerHtml, ?DOMText $textNode)
      *   onAttribute(DOMElement $element, string $attrName, string $value, ?string $scope)
      *
-     * @param callable(DOMElement, string, ?string, ?string, bool):void $onText
+     * @param callable(DOMElement, string, ?string, ?string, bool, ?DOMText):void $onText
      * @param callable(DOMElement, string, string, ?string):void $onAttribute
      */
     public function walk(string $html, callable $onText, callable $onAttribute): string
@@ -275,7 +275,7 @@ final class HtmlWalker
     private function findAggregationTarget(DOMElement $element): ?DOMElement
     {
         $current = $element;
-        while ($current instanceof DOMElement) {
+        while (true) {
             if ($this->hasInlineChildElements($current)) {
                 return $current;
             }
@@ -290,7 +290,6 @@ final class HtmlWalker
             }
             return null;
         }
-        return null;
     }
 
     private function hasInlineChildElements(DOMElement $element): bool
@@ -494,9 +493,6 @@ final class HtmlWalker
             return;
         }
         $doc = $node->ownerDocument;
-        if ($doc === null) {
-            return;
-        }
         $parser = new HTML5();
         $fragment = $parser->loadHTMLFragment($html, ['target_document' => $doc]);
         if (!$fragment instanceof DOMDocumentFragment) {

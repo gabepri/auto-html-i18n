@@ -45,5 +45,26 @@
       "tagAttributes": { "b0": {} },
       "casePattern": "mixed"
     }
+  },
+  {
+    "name": "an orphan closing tag with an empty open stack is masked as markup",
+    "input": "plain </b> orphan",
+    "expected": {
+      "masked": "plain {{0}} orphan",
+      "variables": [
+        {
+          "value": "</b>",
+          "type": "markup"
+        }
+      ]
+    }
+  },
+  {
+    "name": "an unterminated angle bracket is literal text, not a tag",
+    "input": "a < b",
+    "expected": {
+      "masked": "a < b",
+      "variables": []
+    }
   }
 ]

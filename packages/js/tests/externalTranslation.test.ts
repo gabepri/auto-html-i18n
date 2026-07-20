@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { I18nObserver } from '../src/I18nObserver';
+import { ExternalTranslationDetector } from '../src/external';
 import type { I18nConfig, TranslationItem } from '../src/types';
 
 /**
@@ -462,6 +463,24 @@ describe('externalTranslation', () => {
     expect(document.head.querySelector('meta[name="google"][content="notranslate"]')).toBeNull();
   });
 
+  it("'block': a restart without revert keeps the original saved root state", () => {
+    const html = document.documentElement;
+    html.setAttribute('translate', 'yes');
+
+    const { i18n } = createI18n({ externalTranslation: 'block' });
+    i18n.start();
+    expect(html.getAttribute('translate')).toBe('no');
+
+    // stop() without revert leaves the markers (and the saved state) in place; the
+    // second start() must not re-save the now-blocked root as the "author's" state.
+    i18n.stop();
+    i18n.start();
+    expect(html.getAttribute('translate')).toBe('no');
+
+    i18n.stop(true);
+    expect(html.getAttribute('translate')).toBe('yes');
+  });
+
   it("'block': stop(true) restores the exact prior root state", () => {
     const html = document.documentElement;
     html.setAttribute('class', 'notranslate custom');
@@ -591,5 +610,91 @@ describe('externalTranslation', () => {
     await flush();
 
     expect(i18n.getExternalTranslationState().active).toBe(false);
+  });
+
+  describe('ExternalTranslationDetector unit edges', () => {
+    it('installs no root observer when no signal declares root classes', () => {
+      const onActivate = vi.fn();
+      const detector = new ExternalTranslationDetector({
+        signals: [{ id: 'attr-only', mutationAttributes: ['_x'], sticky: true }],
+        onActivate,
+      });
+      const spy = vi.spyOn(MutationObserver.prototype, 'observe');
+      detector.start();
+      expect(spy).not.toHaveBeenCalled();
+      spy.mockRestore();
+      detector.stop();
+      expect(detector.isActive).toBe(false);
+    });
+
+    it('ignores an attribute mutation record with no attributeName', () => {
+      const onActivate = vi.fn();
+      const detector = new ExternalTranslationDetector({
+        signals: [{ id: 'attr-only', mutationAttributes: ['_x'], sticky: true }],
+        onActivate,
+      });
+      const record = {
+        type: 'attributes',
+        attributeName: null,
+        target: document.createElement('div'),
+        addedNodes: [] as unknown as NodeList,
+      } as unknown as MutationRecord;
+      detector.evaluateMutations([record]);
+
+      expect(detector.isActive).toBe(false);
+      expect(onActivate).not.toHaveBeenCalled();
+    });
+
+    it('keeps a sticky root-class signal inactive without clearing when the class is absent', () => {
+      const onActivate = vi.fn();
+      const detector = new ExternalTranslationDetector({
+        signals: [{ id: 'sticky-root', rootClasses: ['acme-translated'], sticky: true }],
+        onActivate,
+      });
+      detector.start();
+      expect(detector.activeSignals).toEqual([]);
+
+      document.documentElement.classList.add('acme-translated');
+      (detector as unknown as { evaluateRootClasses: () => void }).evaluateRootClasses();
+      expect(detector.activeSignals).toEqual(['sticky-root']);
+
+      // Sticky: removing the class must NOT deactivate.
+      document.documentElement.classList.remove('acme-translated');
+      (detector as unknown as { evaluateRootClasses: () => void }).evaluateRootClasses();
+      expect(detector.activeSignals).toEqual(['sticky-root']);
+      expect(onActivate).toHaveBeenCalledTimes(1);
+      detector.stop();
+    });
+
+    it('fires onActivate only on the inactive -> active transition', () => {
+      const onActivate = vi.fn();
+      const detector = new ExternalTranslationDetector({
+        signals: [
+          { id: 'a', mutationAttributes: ['_a'], sticky: true },
+          { id: 'b', mutationAttributes: ['_b'], sticky: true },
+        ],
+        onActivate,
+      });
+      const el = document.createElement('div');
+      const rec = (name: string) =>
+        ({
+          type: 'attributes',
+          attributeName: name,
+          target: el,
+          addedNodes: [] as unknown as NodeList,
+        }) as unknown as MutationRecord;
+
+      detector.evaluateMutations([rec('_a')]);
+      expect(onActivate).toHaveBeenCalledTimes(1);
+
+      // Second, distinct signal activates while already active: no extra callback.
+      detector.evaluateMutations([rec('_b')]);
+      expect(detector.activeSignals).toEqual(['a', 'b']);
+      expect(onActivate).toHaveBeenCalledTimes(1);
+
+      // Re-firing an already-active signal is a no-op too.
+      detector.evaluateMutations([rec('_a')]);
+      expect(onActivate).toHaveBeenCalledTimes(1);
+    });
   });
 });

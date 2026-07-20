@@ -70,6 +70,43 @@ describe('Store', () => {
       expect(store.get('es', 'Hello')!.status).toBe('reported');
     });
 
+    it('markReported is a no-op for a key that was never stored', () => {
+      const store = createStore();
+      // No locale map at all.
+      expect(() => store.markReported('es', 'Hello')).not.toThrow();
+      expect(store.get('es', 'Hello')).toBeUndefined();
+      // Locale map exists, but not this key.
+      store.markPending('es', 'Other');
+      expect(() => store.markReported('es', 'Hello')).not.toThrow();
+      expect(store.get('es', 'Hello')).toBeUndefined();
+      expect(store.get('es', 'Other')!.status).toBe('pending');
+    });
+
+    it('resetIfPending drops pending and reported entries', () => {
+      const store = createStore();
+      store.markPending('es', 'Hello');
+      store.resetIfPending('es', 'Hello');
+      expect(store.has('es', 'Hello')).toBe(false);
+
+      store.markPending('es', 'Hello');
+      store.markReported('es', 'Hello');
+      store.resetIfPending('es', 'Hello');
+      expect(store.has('es', 'Hello')).toBe(false);
+    });
+
+    it('resetIfPending leaves resolved entries and unknown keys alone', () => {
+      const store = createStore();
+      store.set('es', 'Hello', 'Hola');
+      store.resetIfPending('es', 'Hello');
+      expect(store.get('es', 'Hello')!.value).toBe('Hola');
+      expect(store.get('es', 'Hello')!.status).toBe('resolved');
+
+      // Key absent from an existing locale map, and a locale map that doesn't exist.
+      expect(() => store.resetIfPending('es', 'Nope')).not.toThrow();
+      expect(() => store.resetIfPending('fr', 'Nope')).not.toThrow();
+      expect(store.has('es', 'Nope')).toBe(false);
+    });
+
     it('isPending returns true only for pending entries', () => {
       const store = createStore();
       expect(store.isPending('es', 'Hello')).toBe(false);

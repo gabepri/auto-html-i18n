@@ -24,5 +24,31 @@
       { "value": "<div>", "type": "markup" }
     ],
     "expected": "<div>&lt;script&gt;x&lt;/script&gt;"
+  },
+  {
+    "name": "a markup variable substituted into an ICU pattern bypasses sanitization",
+    "translated": "{1, plural, other {# cosas}} {0}",
+    "variables": [
+      {
+        "value": "<input value=\"a\">",
+        "type": "markup"
+      },
+      {
+        "value": "3",
+        "type": "number"
+      }
+    ],
+    "locale": "es",
+    "expected": "3 cosas <input value=\"a\">"
+  },
+  {
+    "name": "tag markers with no entry in tagAttributes are left alone (and then sanitized)",
+    "translated": "Hello <b0>x</b0> <i5>y</i5>",
+    "variables": [],
+    "tagAttributes": {
+      "b0": {}
+    },
+    "locale": "en",
+    "expected": "Hello <b>x</b> &lt;i5&gt;y&lt;/i5&gt;"
   }
 ]

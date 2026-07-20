@@ -69,6 +69,7 @@ An element's markup is aggregated into a single translatable unit only when its 
 | `ignoreWords` | `array` | `[]` | Words preserved verbatim during masking. Plain strings or `['word' => 'X', 'meta' => [...]]`. |
 | `initialCache` | `array<string,string\|array>` | `[]` | Pre-populated translations for the active locale. |
 | `originalAttribute` | `string` | `'data-i18n-original'` | Reserved (currently unused server-side). |
+| `pendingAttribute` | `string` | `'data-i18n-pending'` | Reserved (currently unused server-side). |
 | `keyAttribute` | `string` | `'data-i18n-key'` | When set on an element, overrides the masked key for that element's content. |
 | `ignoreAttribute` | `string` | `'data-i18n-ignore'` | Setting this attribute on an element skips its subtree. |
 | `scopeAttribute` | `string` | `'data-i18n-scope'` | Names a scope that scope-keyed translations resolve against. |
@@ -222,10 +223,70 @@ Both ports honor the same `data-i18n-*` input attributes (`-key`, `-scope`, `-ig
 
 ```bash
 composer install
-vendor/bin/phpunit
+composer test           # PHPUnit
+composer test:coverage  # PHPUnit with a text coverage report
+composer analyse        # PHPStan static analysis (src/ + tests/)
+composer lint           # PHP-CS-Fixer style check (no writes)
+composer lint:fix       # PHP-CS-Fixer, applying fixes
 ```
 
+`composer test:coverage` sets `XDEBUG_MODE=coverage` for you. Running `vendor/bin/phpunit --coverage-text`
+directly reports nothing under Xdebug 3, which defaults to `develop` mode.
+
 Tests include a fixture-driven suite (`tests/FixtureTest.php`) that runs the same Masker assertions as the JS package against the shared corpus in [`fixtures/masker/`](../../fixtures/masker/). Adding a fixture there exercises both ports immediately.
+
+### Static analysis level
+
+[`phpstan.neon.dist`](phpstan.neon.dist) pins **level 9** — the highest level that passes with zero errors
+and zero suppressions. There is deliberately no baseline: a baseline would let a higher number hide the
+same findings.
+
+Four things make level 9 reachable:
+
+- **`treatPhpDocTypesAsCertain: false`.** Several guards in `src/` defend against values that a *vendor's
+  PHPDoc* claims are impossible but that the runtime can still produce — `Masterminds\HTML5::loadHTMLFragment()`
+  returning a non-fragment (`HtmlWalker`, `I18nTranslator`) and `MessageFormatter::create()` returning `null`
+  (`Masker`). An annotation is not a runtime guarantee, so the guards stay and PHPStan is told not to trust
+  the annotation.
+- **Removing guards that were dead by this code's own logic** — the `DOMElement` loop condition and trailing
+  `return null` in `HtmlWalker::findAggregationTarget()`, the `ownerDocument === null` check in
+  `HtmlWalker::replaceTextNode()` (mutually exclusive with the `parentNode === null` check above it), and the
+  empty-capture-group skip in `Masker::parseAttributes()` (group 1 of that regex always matches ≥1 char).
+- **A declared shape for the constructor config.** `I18nTranslator` used to take `array<string,mixed>`, so
+  every value read out of it was `mixed` and level 9 rejected all ten downstream constructor calls. The keys
+  are now spelled out as a PHPStan array shape — which is worth more than the level number: consumers who
+  run PHPStan on their own code get key-name typo detection and per-key value types at the call site. Two
+  aliases are exported and importable with
+  `@phpstan-import-type I18nTranslatorConfig from \AutoHtmlI18n\I18nTranslator`:
+
+  | Alias | Meaning |
+  | --- | --- |
+  | `I18nTranslatorConfig` | What the constructor takes: `locale` and `onMissingTranslation` required, everything else optional. |
+  | `I18nTranslatorOptions` | The same keys with *all* of them optional — for a partial config you merge into a base one. |
+
+  `onMissingTranslation` is deliberately typed as a bare `callable` rather than with its full signature. It is
+  the one config value whose *return* crosses back from consumer code, and annotating that return would let
+  the analyser treat it as proven and delete the runtime guards that exist precisely because an annotation is
+  not a runtime guarantee. The signature it is called with is documented in the class docblock and in the
+  [config table](#new-i18ntranslatorarray-config) above.
+- **A typed decoder in `tests/FixtureTest.php`.** `json_decode()` returns `mixed`, which accounted for 34 of
+  the 44 level-9 findings. The shared JSON now crosses into typed territory in exactly one place
+  (`decodeCases()`), behind a handful of small accessors (`str()`, `map()`, `objectList()`, …) rather than
+  scattered casts — a malformed fixture fails loudly at the decode site instead of surfacing as a confusing
+  type error deep inside a test.
+
+Level 10 (`checkImplicitMixed`) is not enabled. It reports 53 findings, all but one of them the same thing:
+the `array $items` parameter of the ~25 `onMissingTranslation` test closures has an implicit `mixed` element
+type, so every `$item->masked` in the tests is an error. Because the config shape types the callback as a
+bare `callable` (see above), PHPStan cannot infer the element type and each closure would need its own
+`@param list<TranslationItem>` docblock. The remaining finding is a genuine variance nit in
+`TranslationItem::toArray()`. Nothing in `src/` blocks it structurally.
+
+### Code style
+
+[`.php-cs-fixer.dist.php`](.php-cs-fixer.dist.php) applies `@PSR12` plus `declare_strict_types` (every
+file in `src/` and `tests/` already declares it). The codebase satisfies it — `composer lint` reports
+0 of 27 files — and CI enforces it. Run `composer lint:fix` to normalize anything new.
 
 ## License
 
