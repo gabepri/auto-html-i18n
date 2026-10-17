@@ -51,7 +51,7 @@ not a runtime guarantee — and cleared via `treatPhpDocTypesAsCertain: false` r
 
 `composer lint` and `composer analyse` are both blocking in CI.
 
-CI runs both packages in parallel: JS on Node 18/20/22, PHP on 8.1/8.2/8.3, plus a single-version
+CI runs both packages in parallel: JS on Node 20/22/24, PHP on 8.1/8.2/8.3, plus a single-version
 `php-quality` job for `analyse` + `lint` (style and static analysis don't vary per PHP version).
 
 ## Architecture

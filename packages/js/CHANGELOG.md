@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Requires Node 20 or later** (`engines.node` `>=18` → `>=20`). Node 18 reached end of life in April 2025, and CI now tests on Node 20, 22 and 24. The library itself runs in the browser, so this only affects the Node version used to install and build it.
+
 ## 1.3.3
 
 ### Fixed

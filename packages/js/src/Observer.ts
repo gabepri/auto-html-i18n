@@ -12,7 +12,6 @@ export class Observer {
   // after it ends), and otherwise for the span of a single findAggregationTarget call.
   // Cleared at both boundaries — they hold Element keys, so a stale one pins DOM.
   private inWalk = false;
-  private ignoreMemo = new Map<Element, boolean>();
   private inlineMemo = new Map<Element, boolean>();
   private aggregateMemo = new Map<Element, boolean>();
 
@@ -157,8 +156,7 @@ export class Observer {
       this.collectElementAttrs(root, attrItems);
     }
 
-    // Memoize for the collection phase: a TreeWalker may consult its filter more than
-    // once for the same node, and each miss costs a matches() per ignoreSelector.
+    // Aggregation verdicts hold for the whole collection phase (see findAggregationTarget).
     this.inWalk = true;
     this.clearMemos();
 
@@ -166,8 +164,9 @@ export class Observer {
       root,
       NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
       {
+        // A TreeWalker filters each node once, so this costs one matches() per ignoreSelector
         acceptNode: (node: Node) =>
-          node.nodeType === Node.ELEMENT_NODE && this.isIgnored(node as Element)
+          node.nodeType === Node.ELEMENT_NODE && isIgnoredElement(node as Element, this.ignorePredicate)
             ? NodeFilter.FILTER_REJECT
             : NodeFilter.FILTER_ACCEPT,
       }
@@ -197,19 +196,8 @@ export class Observer {
   }
 
   private clearMemos(): void {
-    this.ignoreMemo.clear();
     this.inlineMemo.clear();
     this.aggregateMemo.clear();
-  }
-
-  /** Is this element itself an ignore boundary? Memoized for the current walk. */
-  private isIgnored(element: Element): boolean {
-    let hit = this.ignoreMemo.get(element);
-    if (hit === undefined) {
-      hit = isIgnoredElement(element, this.ignorePredicate);
-      this.ignoreMemo.set(element, hit);
-    }
-    return hit;
   }
 
   private processTextNode(textNode: Text): void {
