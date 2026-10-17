@@ -698,6 +698,18 @@ describe('Integration Tests', () => {
       return onMissing.mock.calls.flatMap(([items]) => items as TranslationItem[]);
     }
 
+    // Under load the observer's callback can run well after any fixed wait, so wait for the
+    // outcome itself rather than a set time.
+    function untilReported(onMissing: ReturnType<typeof vi.fn>): Promise<void> {
+      return vi.waitFor(() => expect(onMissing).toHaveBeenCalled());
+    }
+
+    /** Waits until `check` passes, then a debounce window more for a report that must not come. */
+    async function untilSettled(check: () => void): Promise<void> {
+      await vi.waitFor(check);
+      await new Promise((r) => setTimeout(r, 100));
+    }
+
     it('reports the new source when a bound text node beside an ignored child changes', async () => {
       vi.useRealTimers();
 
@@ -718,7 +730,7 @@ describe('Integration Tests', () => {
 
       // Vue-style patch of the ` · {{ ago }}` text node, which now holds our translation
       (p.lastChild as Text).data = ' · a few seconds ago';
-      await new Promise((r) => setTimeout(r, 100));
+      await untilReported(onMissing);
 
       const reported = reportedItems(onMissing);
       expect(reported.map((item) => item.masked)).toEqual(['Last chat: {{0}} · a few seconds ago']);
@@ -748,7 +760,7 @@ describe('Integration Tests', () => {
 
       const p = root.querySelector('p')!;
       (p.lastChild as Text).data = ' · a few seconds ago';
-      await new Promise((r) => setTimeout(r, 100));
+      await untilSettled(() => expect(p.textContent).toBe('前回のチャット: Lunch budget · 数秒前'));
 
       expect(p.textContent).toBe('前回のチャット: Lunch budget · 数秒前');
       expect(onMissing).not.toHaveBeenCalled();
@@ -781,7 +793,7 @@ describe('Integration Tests', () => {
       const [start, end] = Array.from(p.querySelectorAll('span'));
       (start!.firstChild as Text).data = 'August 3';
       (end!.firstChild as Text).data = 'August 10';
-      await new Promise((r) => setTimeout(r, 100));
+      await untilReported(onMissing);
 
       const reported = reportedItems(onMissing);
       expect(reported.map((item) => item.masked)).toEqual(['<span0>August {{0}}</span0> to <span1>August {{1}}</span1>']);
@@ -811,7 +823,7 @@ describe('Integration Tests', () => {
       expect(p.textContent).toBe('5週中3週');
 
       unit.data = ' days';
-      await new Promise((r) => setTimeout(r, 100));
+      await untilReported(onMissing);
 
       const reported = reportedItems(onMissing);
       expect(reported.map((item) => item.masked)).toEqual(['<b0>{{0}}</b0> of <b1>{{1}}</b1> days']);
@@ -845,7 +857,7 @@ describe('Integration Tests', () => {
       expect(p.textContent).toBe('5週中3週');
 
       (completed.firstChild as Text).data = '4';
-      await new Promise((r) => setTimeout(r, 100));
+      await untilSettled(() => expect(p.textContent).toBe('5週中4週'));
 
       expect(p.textContent).toBe('5週中4週');
       expect(onMissing).not.toHaveBeenCalled();
@@ -881,7 +893,7 @@ describe('Integration Tests', () => {
       const [start, end] = Array.from(p.querySelectorAll('span'));
       start!.textContent = 'August 3';
       end!.textContent = 'August 10';
-      await new Promise((r) => setTimeout(r, 100));
+      await untilReported(onMissing);
 
       const reported = reportedItems(onMissing);
       expect(reported.map((item) => item.masked)).toEqual(['<span0>August {{0}}</span0> to <span1>August {{1}}</span1>']);
@@ -915,7 +927,7 @@ describe('Integration Tests', () => {
       expect(p.textContent).toBe('Last chat: Lunch budget · a few seconds ago');
       expect(p.hasAttribute('data-i18n-pending')).toBe(true);
 
-      await new Promise((r) => setTimeout(r, 100));
+      await untilSettled(() => expect(p.textContent).toBe('前回のチャット: Lunch budget · 数秒前'));
 
       expect(p.textContent).toBe('前回のチャット: Lunch budget · 数秒前');
       expect(Array.from(p.childNodes)).toEqual(nodes);
@@ -956,7 +968,7 @@ describe('Integration Tests', () => {
         const { i18n, p, completed, unit } = setup(onMissing);
 
         (completed.firstChild as Text).data = '4';
-        await new Promise((r) => setTimeout(r, 100));
+        await untilSettled(() => expect(p.textContent).toBe('5週中4'));
 
         expect(onMissing).not.toHaveBeenCalled();
         expect(p.textContent).toBe('5週中4');
@@ -975,7 +987,7 @@ describe('Integration Tests', () => {
 
         unit.data = ' days'; // no mutation reaches us: the node is detached
         (completed.firstChild as Text).data = '4';
-        await new Promise((r) => setTimeout(r, 100));
+        await untilReported(onMissing);
 
         const reported = reportedItems(onMissing);
         expect(reported.map((item) => item.masked)).toEqual(['<b0>{{0}}</b0> of <b1>{{1}}</b1> days']);
@@ -1021,7 +1033,7 @@ describe('Integration Tests', () => {
         flag.textContent = 'new';
         p.insertBefore(flag, anchor.nextSibling); // v-if turns true: element in, anchor out
         anchor.remove();
-        await new Promise((r) => setTimeout(r, 100));
+        await untilReported(onMissing);
 
         const reported = reportedItems(onMissing);
         expect(reported.map((item) => item.masked)).toEqual(['<b0>{{0}}</b0> sheep<i0>new</i0>']);
@@ -1051,7 +1063,7 @@ describe('Integration Tests', () => {
         expect(p.textContent).toBe('5 ovejas');
 
         p.innerHTML = 'Only <b>2</b> goats';
-        await new Promise((r) => setTimeout(r, 100));
+        await untilReported(onMissing);
 
         const reported = reportedItems(onMissing);
         expect(reported.map((item) => item.masked)).toEqual(['Only <b0>{{0}}</b0> goats']);
@@ -1080,7 +1092,7 @@ describe('Integration Tests', () => {
       expect(p.textContent).toBe('Clic aquí');
 
       p.innerHTML = 'Bye <a href="/y">there</a>';
-      await new Promise((r) => setTimeout(r, 100));
+      await untilSettled(() => expect(p.innerHTML).toBe('Adiós <a href="/y">allí</a>'));
 
       expect(p.innerHTML).toBe('Adiós <a href="/y">allí</a>');
       expect(p.getAttribute('data-i18n-original')).toBe('Bye <a href="/y">there</a>');
@@ -1110,7 +1122,7 @@ describe('Integration Tests', () => {
       const badge = document.createElement('b');
       badge.textContent = 'now';
       p.appendChild(badge);
-      await new Promise((r) => setTimeout(r, 100));
+      await untilReported(onMissing);
 
       const [item] = reportedItems(onMissing);
       expect(item!.masked).not.toMatch(/[ぁ-んァ-ン一-龯]/);
