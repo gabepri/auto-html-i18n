@@ -689,6 +689,461 @@ describe('Integration Tests', () => {
     });
   });
 
+  describe('framework patches one node inside a translated aggregate', () => {
+    // After a framework patches one node it bound inside a unit we translated, the other
+    // nodes still hold our translation. The unit's source is the original with the
+    // patched value in it.
+
+    function reportedItems(onMissing: ReturnType<typeof vi.fn>): TranslationItem[] {
+      return onMissing.mock.calls.flatMap(([items]) => items as TranslationItem[]);
+    }
+
+    it('reports the new source when a bound text node beside an ignored child changes', async () => {
+      vi.useRealTimers();
+
+      const onMissing = vi.fn().mockResolvedValue(null);
+      const i18n = new I18nObserver({
+        locale: 'ja-JP',
+        onMissingTranslation: onMissing,
+        initialCache: { 'Last chat: {{0}} · {{1}} minutes ago': '前回のチャット: {{0}} · {{1}}分前' },
+        rootElement: root,
+        debounceTime: 30,
+      });
+
+      root.innerHTML = '<p>Last chat: <span data-i18n-ignore>Lunch budget</span> · 5 minutes ago</p>';
+      i18n.start();
+
+      const p = root.querySelector('p')!;
+      expect(p.textContent).toBe('前回のチャット: Lunch budget · 5分前');
+
+      // Vue-style patch of the ` · {{ ago }}` text node, which now holds our translation
+      (p.lastChild as Text).data = ' · a few seconds ago';
+      await new Promise((r) => setTimeout(r, 100));
+
+      const reported = reportedItems(onMissing);
+      expect(reported.map((item) => item.masked)).toEqual(['Last chat: {{0}} · a few seconds ago']);
+      expect(reported[0]!.original).toBe('Last chat: <span data-i18n-ignore="">Lunch budget</span> · a few seconds ago');
+
+      i18n.stop();
+      vi.useFakeTimers();
+    });
+
+    it('applies the cached translation of the new source instead of leaving the sentence half-translated', async () => {
+      vi.useRealTimers();
+
+      const onMissing = vi.fn().mockResolvedValue(null);
+      const i18n = new I18nObserver({
+        locale: 'ja-JP',
+        onMissingTranslation: onMissing,
+        initialCache: {
+          'Last chat: {{0}} · {{1}} minutes ago': '前回のチャット: {{0}} · {{1}}分前',
+          'Last chat: {{0}} · a few seconds ago': '前回のチャット: {{0}} · 数秒前',
+        },
+        rootElement: root,
+        debounceTime: 30,
+      });
+
+      root.innerHTML = '<p>Last chat: <span data-i18n-ignore>Lunch budget</span> · 5 minutes ago</p>';
+      i18n.start();
+
+      const p = root.querySelector('p')!;
+      (p.lastChild as Text).data = ' · a few seconds ago';
+      await new Promise((r) => setTimeout(r, 100));
+
+      expect(p.textContent).toBe('前回のチャット: Lunch budget · 数秒前');
+      expect(onMissing).not.toHaveBeenCalled();
+
+      i18n.stop();
+      vi.useFakeTimers();
+    });
+
+    it('reports the new source when bound inline children change', async () => {
+      vi.useRealTimers();
+
+      const onMissing = vi.fn().mockResolvedValue(null);
+      const i18n = new I18nObserver({
+        locale: 'zh-CN',
+        onMissingTranslation: onMissing,
+        initialCache: {
+          '<span0>July {{0}}</span0> to <span1>August {{1}}</span1>': '<span0>7月{{0}}日</span0>至<span1>8月{{1}}日</span1>',
+        },
+        rootElement: root,
+        debounceTime: 30,
+      });
+
+      root.innerHTML = '<p><span class="font-semibold">July 27</span> to <span class="font-semibold">August 3</span></p>';
+      i18n.start();
+
+      const p = root.querySelector('p')!;
+      expect(p.textContent).toBe('7月27日至8月3日');
+
+      // The next week's range is patched into the spans; the translated " to " stays
+      const [start, end] = Array.from(p.querySelectorAll('span'));
+      (start!.firstChild as Text).data = 'August 3';
+      (end!.firstChild as Text).data = 'August 10';
+      await new Promise((r) => setTimeout(r, 100));
+
+      const reported = reportedItems(onMissing);
+      expect(reported.map((item) => item.masked)).toEqual(['<span0>August {{0}}</span0> to <span1>August {{1}}</span1>']);
+      expect(reported[0]!.original).toBe('<span class="font-semibold">August 3</span> to <span class="font-semibold">August 10</span>');
+
+      i18n.stop();
+      vi.useFakeTimers();
+    });
+
+    it('reports the new source in source order when the translation reordered the children', async () => {
+      vi.useRealTimers();
+
+      const onMissing = vi.fn().mockResolvedValue(null);
+      const i18n = new I18nObserver({
+        locale: 'ja-JP',
+        onMissingTranslation: onMissing,
+        initialCache: { '<b0>{{0}}</b0> of <b1>{{1}}</b1> weeks': '<b1>{{1}}</b1>週中<b0>{{0}}</b0>週' },
+        rootElement: root,
+        debounceTime: 30,
+      });
+
+      root.innerHTML = '<p><b>3</b> of <b>5</b> weeks</p>';
+      const p = root.querySelector('p')!;
+      const unit = p.lastChild as Text;
+      i18n.start();
+
+      expect(p.textContent).toBe('5週中3週');
+
+      unit.data = ' days';
+      await new Promise((r) => setTimeout(r, 100));
+
+      const reported = reportedItems(onMissing);
+      expect(reported.map((item) => item.masked)).toEqual(['<b0>{{0}}</b0> of <b1>{{1}}</b1> days']);
+      expect(reported[0]!.original).toBe('<b>3</b> of <b>5</b> days');
+
+      i18n.stop();
+      vi.useFakeTimers();
+    });
+
+    // A patched number masks to the same key as our own output, so nothing is reported;
+    // the stored source must still carry the new value or a revert or locale switch
+    // brings the old one back.
+    it('keeps a patched masked value in the stored source for revert and locale switch', async () => {
+      vi.useRealTimers();
+
+      const key = '<b0>{{0}}</b0> of <b1>{{1}}</b1> weeks';
+      const onMissing = vi.fn().mockResolvedValue(null);
+      const i18n = new I18nObserver({
+        locale: 'ja-JP',
+        onMissingTranslation: onMissing,
+        initialCache: { [key]: '<b1>{{1}}</b1>週中<b0>{{0}}</b0>週' },
+        rootElement: root,
+        debounceTime: 30,
+      });
+      i18n.setCache('fr', { [key]: '<b0>{{0}}</b0> sur <b1>{{1}}</b1> semaines' });
+
+      root.innerHTML = '<p><b>3</b> of <b>5</b> weeks</p>';
+      const p = root.querySelector('p')!;
+      const completed = p.querySelector('b')!;
+      i18n.start();
+      expect(p.textContent).toBe('5週中3週');
+
+      (completed.firstChild as Text).data = '4';
+      await new Promise((r) => setTimeout(r, 100));
+
+      expect(p.textContent).toBe('5週中4週');
+      expect(onMissing).not.toHaveBeenCalled();
+      expect(p.getAttribute('data-i18n-original')).toBe('<b>4</b> of <b>5</b> weeks');
+
+      i18n.setLocale('fr');
+      expect(p.textContent).toBe('4 sur 5 semaines');
+
+      i18n.stop(true);
+      expect(p.innerHTML).toBe('<b>4</b> of <b>5</b> weeks');
+      vi.useFakeTimers();
+    });
+
+    it('reports the new source when the framework replaces an inline child\'s text node', async () => {
+      vi.useRealTimers();
+
+      const onMissing = vi.fn().mockResolvedValue(null);
+      const i18n = new I18nObserver({
+        locale: 'zh-CN',
+        onMissingTranslation: onMissing,
+        initialCache: {
+          '<span0>July {{0}}</span0> to <span1>August {{1}}</span1>': '<span0>7月{{0}}日</span0>至<span1>8月{{1}}日</span1>',
+        },
+        rootElement: root,
+        debounceTime: 30,
+      });
+
+      root.innerHTML = '<p><span class="font-semibold">July 27</span> to <span class="font-semibold">August 3</span></p>';
+      i18n.start();
+
+      // Vue patches `<span>{{ start }}</span>` through textContent, which swaps the Text node out
+      const p = root.querySelector('p')!;
+      const [start, end] = Array.from(p.querySelectorAll('span'));
+      start!.textContent = 'August 3';
+      end!.textContent = 'August 10';
+      await new Promise((r) => setTimeout(r, 100));
+
+      const reported = reportedItems(onMissing);
+      expect(reported.map((item) => item.masked)).toEqual(['<span0>August {{0}}</span0> to <span1>August {{1}}</span1>']);
+      expect(reported[0]!.original).toBe('<span class="font-semibold">August 3</span> to <span class="font-semibold">August 10</span>');
+
+      i18n.stop();
+      vi.useFakeTimers();
+    });
+
+    it('shows the new source while its translation is pending, then translates it in the same nodes', async () => {
+      vi.useRealTimers();
+
+      const onMissing = vi.fn().mockResolvedValue({ 'Last chat: {{0}} · a few seconds ago': '前回のチャット: {{0}} · 数秒前' });
+      const i18n = new I18nObserver({
+        locale: 'ja-JP',
+        onMissingTranslation: onMissing,
+        initialCache: { 'Last chat: {{0}} · {{1}} minutes ago': '前回のチャット: {{0}} · {{1}}分前' },
+        rootElement: root,
+        debounceTime: 30,
+      });
+
+      root.innerHTML = '<p>Last chat: <span data-i18n-ignore>Lunch budget</span> · 5 minutes ago</p>';
+      const p = root.querySelector('p')!;
+      const nodes = Array.from(p.childNodes);
+      i18n.start();
+
+      (p.lastChild as Text).data = ' · a few seconds ago';
+      await new Promise((r) => setTimeout(r, 0));
+
+      // A fresh render of the new source would show it untranslated until the translation arrives
+      expect(p.textContent).toBe('Last chat: Lunch budget · a few seconds ago');
+      expect(p.hasAttribute('data-i18n-pending')).toBe(true);
+
+      await new Promise((r) => setTimeout(r, 100));
+
+      expect(p.textContent).toBe('前回のチャット: Lunch budget · 数秒前');
+      expect(Array.from(p.childNodes)).toEqual(nodes);
+      expect(onMissing).toHaveBeenCalledTimes(1);
+
+      i18n.stop();
+      vi.useFakeTimers();
+    });
+
+    describe('a source text node the translation dropped', () => {
+      // `<b1>{{1}}</b1>週中<b0>{{0}}</b0>` has no segment for " weeks", so its Text node is
+      // taken out of the document. The framework still holds it.
+      const key = '<b0>{{0}}</b0> of <b1>{{1}}</b1> weeks';
+      const translation = '<b1>{{1}}</b1>週中<b0>{{0}}</b0>';
+
+      function setup(onMissing: ReturnType<typeof vi.fn>) {
+        const i18n = new I18nObserver({
+          locale: 'ja-JP',
+          onMissingTranslation: onMissing,
+          initialCache: { [key]: translation },
+          rootElement: root,
+          debounceTime: 30,
+        });
+        root.innerHTML = '<p><b>3</b> of <b>5</b> weeks</p>';
+        const p = root.querySelector('p')!;
+        const completed = p.querySelector('b')!;
+        const unit = p.lastChild as Text;
+        i18n.start();
+        expect(p.textContent).toBe('5週中3');
+        expect(unit.parentNode).toBeNull();
+        return { i18n, p, completed, unit };
+      }
+
+      it('contributes its source text when a patch elsewhere re-derives the unit', async () => {
+        vi.useRealTimers();
+
+        const onMissing = vi.fn().mockResolvedValue(null);
+        const { i18n, p, completed, unit } = setup(onMissing);
+
+        (completed.firstChild as Text).data = '4';
+        await new Promise((r) => setTimeout(r, 100));
+
+        expect(onMissing).not.toHaveBeenCalled();
+        expect(p.textContent).toBe('5週中4');
+        expect(p.getAttribute('data-i18n-original')).toBe('<b>4</b> of <b>5</b> weeks');
+        expect(unit.parentNode).toBeNull();
+
+        i18n.stop();
+        vi.useFakeTimers();
+      });
+
+      it('carries a value the framework gave it while it was out of the document', async () => {
+        vi.useRealTimers();
+
+        const onMissing = vi.fn().mockResolvedValue(null);
+        const { i18n, p, completed, unit } = setup(onMissing);
+
+        unit.data = ' days'; // no mutation reaches us: the node is detached
+        (completed.firstChild as Text).data = '4';
+        await new Promise((r) => setTimeout(r, 100));
+
+        const reported = reportedItems(onMissing);
+        expect(reported.map((item) => item.masked)).toEqual(['<b0>{{0}}</b0> of <b1>{{1}}</b1> days']);
+        expect(reported[0]!.original).toBe('<b>4</b> of <b>5</b> days');
+        // Back in place while the new source is pending, where the framework expects it
+        expect(unit.parentNode).toBe(p);
+        expect(p.innerHTML).toBe('<b>4</b> of <b>5</b> days');
+
+        i18n.stop();
+        vi.useFakeTimers();
+      });
+    });
+
+    describe('a unit the translation rebuilt (ICU)', () => {
+      // An ICU translation can't be mapped onto the source's nodes, so the rebuild replaces
+      // them with its own (the sanctioned exception to node preservation). The rebuild's
+      // nodes never map back to the source; the source nodes it took out are the
+      // framework's, and still are unless the framework has since rendered over the unit.
+      const key = '<b0>{{0}}</b0> sheep{{1}}';
+      const translation = '{0, plural, one {<b0>#</b0> oveja} other {<b0>#</b0> ovejas}}';
+
+      it('puts the source nodes back when the framework swaps a v-if anchor inside it', async () => {
+        vi.useRealTimers();
+
+        const onMissing = vi.fn().mockResolvedValue(null);
+        const i18n = new I18nObserver({
+          locale: 'es',
+          onMissingTranslation: onMissing,
+          initialCache: { [key]: translation },
+          rootElement: root,
+          debounceTime: 30,
+        });
+
+        root.innerHTML = '<p><b>5</b> sheep<!--v-if--></p>';
+        const p = root.querySelector('p')!;
+        const [count, anchor] = [p.querySelector('b')!, p.lastChild!];
+        i18n.start();
+        expect(p.innerHTML).toBe('<b>5</b> ovejas<!--v-if-->');
+        expect(count.parentNode).toBeNull();
+
+        count.textContent = '6'; // `<b>{{ n }}</b>` patched while out of the document
+        const flag = document.createElement('i');
+        flag.textContent = 'new';
+        p.insertBefore(flag, anchor.nextSibling); // v-if turns true: element in, anchor out
+        anchor.remove();
+        await new Promise((r) => setTimeout(r, 100));
+
+        const reported = reportedItems(onMissing);
+        expect(reported.map((item) => item.masked)).toEqual(['<b0>{{0}}</b0> sheep<i0>new</i0>']);
+        expect(reported[0]!.original).toBe('<b>6</b> sheep<i>new</i>');
+        expect(p.firstChild).toBe(count);
+        expect(p.lastChild).toBe(flag);
+
+        i18n.stop();
+        vi.useFakeTimers();
+      });
+
+      it('takes the framework\'s content as the source when it renders over the whole unit', async () => {
+        vi.useRealTimers();
+
+        const onMissing = vi.fn().mockResolvedValue(null);
+        const i18n = new I18nObserver({
+          locale: 'es',
+          onMissingTranslation: onMissing,
+          initialCache: { [key]: translation },
+          rootElement: root,
+          debounceTime: 30,
+        });
+
+        root.innerHTML = '<p><b>5</b> sheep<!--v-if--></p>';
+        const p = root.querySelector('p')!;
+        i18n.start();
+        expect(p.textContent).toBe('5 ovejas');
+
+        p.innerHTML = 'Only <b>2</b> goats';
+        await new Promise((r) => setTimeout(r, 100));
+
+        const reported = reportedItems(onMissing);
+        expect(reported.map((item) => item.masked)).toEqual(['Only <b0>{{0}}</b0> goats']);
+        expect(p.innerHTML).toBe('Only <b>2</b> goats');
+
+        i18n.stop();
+        vi.useFakeTimers();
+      });
+    });
+
+    it('takes the framework\'s content as the source when it renders over a reconciled unit', async () => {
+      vi.useRealTimers();
+
+      const onMissing = vi.fn().mockResolvedValue(null);
+      const i18n = new I18nObserver({
+        locale: 'es',
+        onMissingTranslation: onMissing,
+        initialCache: { 'Click <a0>here</a0>': 'Clic <a0>aquí</a0>', 'Bye <a0>there</a0>': 'Adiós <a0>allí</a0>' },
+        rootElement: root,
+        debounceTime: 30,
+      });
+
+      root.innerHTML = '<p>Click <a href="/x">here</a></p>';
+      i18n.start();
+      const p = root.querySelector('p')!;
+      expect(p.textContent).toBe('Clic aquí');
+
+      p.innerHTML = 'Bye <a href="/y">there</a>';
+      await new Promise((r) => setTimeout(r, 100));
+
+      expect(p.innerHTML).toBe('Adiós <a href="/y">allí</a>');
+      expect(p.getAttribute('data-i18n-original')).toBe('Bye <a href="/y">there</a>');
+      expect(onMissing).not.toHaveBeenCalled();
+
+      i18n.stop();
+      vi.useFakeTimers();
+    });
+
+    it('keeps an element the framework inserts, and reports none of the translation with it', async () => {
+      vi.useRealTimers();
+
+      const onMissing = vi.fn().mockResolvedValue(null);
+      const i18n = new I18nObserver({
+        locale: 'ja-JP',
+        onMissingTranslation: onMissing,
+        initialCache: { 'Click <a0>here</a0> to continue': '続けるには<a0>ここ</a0>をクリック' },
+        rootElement: root,
+        debounceTime: 30,
+      });
+
+      root.innerHTML = '<p>Click <a href="/x">here</a> to continue</p>';
+      i18n.start();
+      const p = root.querySelector('p')!;
+      expect(p.textContent).toBe('続けるにはここをクリック');
+
+      const badge = document.createElement('b');
+      badge.textContent = 'now';
+      p.appendChild(badge);
+      await new Promise((r) => setTimeout(r, 100));
+
+      const [item] = reportedItems(onMissing);
+      expect(item!.masked).not.toMatch(/[ぁ-んァ-ン一-龯]/);
+      expect(item!.original).not.toMatch(/[ぁ-んァ-ン一-龯]/);
+      expect(item!.masked).toContain('<b0>now</b0>');
+      expect(p.lastChild).toBe(badge);
+
+      i18n.stop();
+      vi.useFakeTimers();
+    });
+
+    it('reverts the nodes it wrote and keeps a patch the observer has not yet seen', () => {
+      // stop(true) disconnects before the patch's mutation is delivered, so revertAll
+      // meets the half-translated unit itself.
+      const i18n = new I18nObserver({
+        locale: 'ja-JP',
+        onMissingTranslation: vi.fn().mockResolvedValue(null),
+        initialCache: { 'Last chat: {{0}} · {{1}} minutes ago': '前回のチャット: {{0}} · {{1}}分前' },
+        rootElement: root,
+      });
+
+      root.innerHTML = '<p>Last chat: <span data-i18n-ignore>Lunch budget</span> · 5 minutes ago</p>';
+      i18n.start();
+      const p = root.querySelector('p')!;
+
+      (p.lastChild as Text).data = ' · a few seconds ago';
+      i18n.stop(true);
+
+      expect(p.innerHTML).toBe('Last chat: <span data-i18n-ignore="">Lunch budget</span> · a few seconds ago');
+      expect(p.hasAttribute('data-i18n-original')).toBe(false);
+    });
+  });
+
   describe('debug mode', () => {
     it('should include debug info in onMissingTranslation items when debug=true', async () => {
       const onMissing = vi.fn().mockResolvedValue({ 'Hello': 'Hola' });

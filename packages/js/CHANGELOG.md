@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A framework patch to part of a translated sentence no longer reports our own translation as missing source.** A sentence with inline tags is translated as one unit, but a framework (Vue patching `{{ binding }}` in `Last chat: <b>{{ title }}</b> · {{ ago }}`) rewrites only the nodes it bound, leaving the translation in the rest. That half-translated string was reported through `onMissingTranslation` (e.g. `前回のチャット: {{0}} · a few seconds ago`), where it became a junk row, while the real new source was never looked up, so the sentence stayed half translated until reload. The library now puts the original text back into the nodes the framework didn't touch, in source order even when the translation reordered them, and handles the sentence exactly as a fresh render of the new source: a cached translation is applied in place (same nodes), otherwise the source shows while it's reported.
+- **Patching only a number in a translated sentence no longer leaves a stale original behind.** `<b>3</b> of <b>5</b> weeks` → `<b>4</b>…` masks to the same key, so nothing was reported, but `data-i18n-original` kept `3`, and a later locale switch or `stop(true)` brought `3` back.
+- **`stop(true)` reverts a sentence a framework patched part of.** It used to leave the whole sentence translated when the patch hadn't been observed yet; now the patched nodes keep their new text and the rest is reverted.
+
 ## 1.3.0
 
 ### List-valued options extend the defaults instead of replacing them

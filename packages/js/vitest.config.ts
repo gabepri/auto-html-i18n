@@ -21,10 +21,10 @@ export default defineConfig({
         // from real DOM behavior. They exercised the metric, not the code, and
         // were removed. The remaining gap is those guards.
         autoUpdate: true,
-        branches: 98.69,
+        branches: 98.75,
         functions: 100,
         lines: 99.92,
-        statements: 99.85,
+        statements: 99.86,
       },
     },
   },

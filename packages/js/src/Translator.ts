@@ -19,7 +19,7 @@ import { stripIgnoreSentinels, collectTopLevelIgnored, isIgnoredElement, IGNORED
  *
  * So apply ({@link Translator.morphInto}/{@link Translator.reconcileChildren}),
  * leaf text ({@link Translator.setLeafText}), ignored-node restoration, and
- * revert ({@link Translator.morphOriginalInto}) all morph in place. The one
+ * revert ({@link Translator.restoreSource}/{@link Translator.morphOriginalInto}) all morph in place. The one
  * sanctioned exception is {@link Translator.rebuildChildren}: when the translated
  * shape genuinely can't map 1:1 onto the existing nodes (ICU branch selection, or
  * a tag the translation added/dropped) there is no stable node to preserve, so it
@@ -40,6 +40,21 @@ interface AppliedOutput {
   concrete: string;
   source: string;
 }
+
+/**
+ * One child of an aggregated unit as it stood in the source, held by node identity: a Text
+ * node with the data it held, an inline element with its own children, or a node carried
+ * as-is (an ignored subtree, a comment). See {@link Translator.restoreSource}.
+ */
+interface SourceNode {
+  node: Node;
+  /** Text only: what the node held in the source. */
+  data?: string;
+  /** Inline element only. */
+  children?: SourceNode[];
+}
+
+const NO_ELEMENTS: ReadonlySet<Element> = new Set();
 
 export interface TranslatorConfig {
   locale: string;
@@ -114,10 +129,24 @@ export class Translator {
   // placed in an aggregated unit, so a later re-translate can reuse the same live
   // nodes even when a translation reordered them. See morphInto/buildMarkerToNode.
   private nodeMarkers = new WeakMap<Element, string>();
-  // Text nodes we emptied ourselves (an ICU arm rendered nothing). Without this they'd
-  // be indistinguishable from a framework fragment anchor and skipped forever. See
-  // isAnchorText/setTextData.
-  private emptiedByUs = new WeakSet<Text>();
+  // The data we last wrote into each Text node. A node still holding it shows our
+  // translation; one holding anything else was rewritten by its framework since. A node
+  // we emptied ourselves (an ICU arm rendered nothing) is also told apart from a framework
+  // fragment anchor by this. See isAnchorText/setTextData.
+  private written = new WeakMap<Text, string>();
+  // Per aggregated unit, which live node holds which part of its source. Captured each
+  // time we translate the unit from source, and read when a framework patches part of it.
+  // See restoreSource.
+  private sources = new WeakMap<Element, SourceNode[]>();
+  // Nodes we created to hold translated content (Text a translation needed beyond the
+  // source's, and a rebuild's content). They have no source counterpart.
+  private inserted = new WeakSet<Node>();
+  // Source nodes we took out of the document (the translation had fewer text segments, or
+  // the unit was rebuilt), mapped to the parent they came from. The framework still holds
+  // them, so they are still part of the source, unless it has since rendered over that
+  // parent: `keptChildren` is what we left in each such parent, to tell. See isStillSource.
+  private detachedFrom = new WeakMap<Node, Element>();
+  private keptChildren = new WeakMap<Element, Node[]>();
   // A non-aggregatable parent holds one translation unit PER direct text node
   // (`<p>one<br>two</p>` is two units), so unit state can't hang off the element or the
   // second apply overwrites the first node and reclaims the rest. These are the
@@ -211,6 +240,14 @@ export class Translator {
       } else {
         element.removeAttribute(this.config.originalAttribute);
         this.lastApplied.delete(element);
+        // A leaf's rewrite replaces all of it, but a patch to an aggregated unit replaces
+        // only the nodes the framework bound: the rest still hold our translation, so the
+        // incoming text is half ours. Put the source back and read the unit again.
+        if (this.restoreSource(element)) {
+          originalText = this.serializeAggregate(element);
+          this.lastApplied.set(element, originalText); // the restore's own echo
+          this.unprotectElement(element);
+        }
       }
     }
 
@@ -241,6 +278,7 @@ export class Translator {
       } else {
         element.setAttribute(this.config.originalAttribute, echoedOriginal);
         this.lastApplied.set(element, this.currentContent(element, isHtml));
+        this.sources.delete(element); // these nodes never held that source
       }
       element.removeAttribute(this.config.pendingAttribute);
       return;
@@ -581,7 +619,8 @@ export class Translator {
         this.ownsText.delete(element);
       } else {
         const originalText = element.getAttribute(this.config.originalAttribute);
-        if (originalText) {
+        // An aggregated unit restores node by node, so newer content wins per node
+        if (originalText && !this.restoreSource(element)) {
           const isHtml = /<[^>]+>/.test(originalText);
           // Only restore if the content is still what we wrote — otherwise the
           // element was rewritten since and the newer content wins
@@ -604,6 +643,7 @@ export class Translator {
       element.removeAttribute(this.config.pendingAttribute);
       this.unprotectElement(element);
       this.lastApplied.delete(element);
+      this.sources.delete(element);
     }
 
     // Revert attributes
@@ -718,11 +758,18 @@ export class Translator {
       // rendering (each ignored slot an empty marker element) so we can splice
       // the live ignored DOM nodes back in rather than reconstruct them.
       let placeholderOutput: string | undefined;
+      let liveIgnored: Element[] = [];
       if (maskResult.variables.some((v) => v.type === 'ignored')) {
         const p = this.masker.unmask(value, maskResult.variables, maskResult.tagAttributes, this.config.locale, originalText, 'placeholder');
         placeholderOutput = maskResult.leadingWhitespace + this.masker.applyCasePattern(p, casePattern) + maskResult.trailingWhitespace;
+        liveIgnored = collectTopLevelIgnored(element, this.ignorePredicate);
       }
-      this.morphInto(element, output, value, maskResult.variables, placeholderOutput);
+      // No original marker means the element shows source, not an earlier translation:
+      // the one moment to record which live node holds which part of it.
+      if (!element.hasAttribute(this.config.originalAttribute)) {
+        this.sources.set(element, this.captureSource(element, liveIgnored.length ? new Set(liveIgnored) : NO_ELEMENTS));
+      }
+      this.morphInto(element, output, value, maskResult.variables, placeholderOutput, liveIgnored);
       // Record the canonical serialization, which is what mutation callbacks
       // will echo back
       this.lastApplied.set(element, this.serializeAggregate(element));
@@ -778,19 +825,19 @@ export class Translator {
   }
 
   /**
-   * The only place a Text node's data is written. Keeps {@link emptiedByUs} in step with
-   * it, so a node we blank stays ours and a node we fill stops being a candidate.
+   * The only place a Text node's data is written. Keeps {@link written} in step with it, so
+   * a node we blank stays ours and a later framework write to it is recognized as one.
    */
   private setTextData(node: Text, data: string): void {
     if (node.data !== data) node.data = data;
-    if (data === '') this.emptiedByUs.add(node);
-    else this.emptiedByUs.delete(node);
+    this.written.set(node, data);
   }
 
-  /** The only place a Text node is created; an empty one is ours, not a framework anchor. */
+  /** The only place a Text node is created; it holds translation only (see {@link inserted}). */
   private createText(doc: Document, data: string): Text {
     const node = doc.createTextNode(data);
-    if (data === '') this.emptiedByUs.add(node);
+    this.written.set(node, data);
+    this.inserted.add(node);
     return node;
   }
 
@@ -810,7 +857,7 @@ export class Translator {
    * {@link setTextData}.
    */
   private isAnchorText(node: Node): boolean {
-    return node.nodeType === Node.TEXT_NODE && (node as Text).data === '' && !this.emptiedByUs.has(node as Text);
+    return node.nodeType === Node.TEXT_NODE && (node as Text).data === '' && this.written.get(node as Text) !== '';
   }
 
   /**
@@ -873,6 +920,75 @@ export class Translator {
     this.morphInto(element, stripIgnoreSentinels(originalText), maskResult.masked, maskResult.variables, placeholderOutput);
   }
 
+  /** `parent`'s children as the source has them (see {@link SourceNode}); `ignored` stay opaque. */
+  private captureSource(parent: Element, ignored: ReadonlySet<Element>): SourceNode[] {
+    const out: SourceNode[] = [];
+    for (const child of parent.childNodes) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        // An anchor isn't content: it serializes to nothing and stays where the framework put it
+        if (!this.isAnchorText(child)) out.push({ node: child, data: (child as Text).data });
+      } else if (child.nodeType === Node.ELEMENT_NODE && !ignored.has(child as Element)) {
+        out.push({ node: child, children: this.captureSource(child as Element, ignored) });
+      } else {
+        out.push({ node: child });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Put an aggregated unit's source back in place, from the nodes recorded when we last
+   * translated it from source; false when there is no such record. A framework patches only
+   * the nodes it bound, so the unit can hold fresh source in those and our translation in
+   * the rest. Node by node:
+   *  - a Text node still holding what we wrote gets its source data back; one the
+   *    framework has written to since keeps its new data;
+   *  - nodes go back into source order, so the unit reads the way a fresh render would;
+   *  - a node the framework removed stays removed, and one it added stays where it is;
+   *  - Text we created for the translation goes, and a source node we took out comes back
+   *    (see {@link isStillSource}).
+   * Reading the element afterwards gives the unit's real source, and none of our output.
+   */
+  private restoreSource(element: Element): boolean {
+    const source = this.sources.get(element);
+    if (!source) return false;
+    this.restoreChildren(element, element, source);
+    return true;
+  }
+
+  private restoreChildren(unit: Element, parent: Element, source: SourceNode[]): void {
+    const ordered: Node[] = [];
+    for (const s of source) {
+      if (!this.isStillSource(unit, parent, s.node)) continue;
+      if (s.data !== undefined) {
+        const text = s.node as Text;
+        if (this.written.get(text) === text.data) this.setTextData(text, s.data);
+      } else if (s.children) {
+        // Back in source order, the next apply numbers its markers afresh (buildMarkerToNode)
+        this.nodeMarkers.delete(s.node as Element);
+        this.restoreChildren(unit, s.node as Element, s.children);
+      }
+      ordered.push(s.node);
+    }
+    this.arrangeChildren(parent, ordered, (node) => !this.inserted.has(node));
+  }
+
+  /**
+   * Is a recorded source node still part of the unit? One the framework removed is not. One
+   * we removed is, because the framework still holds it, unless the framework has since
+   * rendered over the parent we took it from (replaced everything we left there, as
+   * `textContent =` or unmounting a fragment does): then it has let go of that node too, and
+   * putting it back would resurrect content it no longer renders.
+   */
+  private isStillSource(unit: Element, parent: Element, node: Node): boolean {
+    if (node.parentNode === parent) return true;
+    if (node.parentNode !== null) return unit.contains(node); // a translation can re-nest elements
+    const from = this.detachedFrom.get(node);
+    if (from === undefined) return false;
+    const kept = this.keptChildren.get(from)!; // recorded with every removal
+    return kept.length > 0 ? kept.some((n) => n.parentNode === from) : from.firstChild === null;
+  }
+
   /**
    * Write translated HTML into `element` (node-preservation invariant). The common
    * case reconciles the output onto the existing nodes in place
@@ -887,7 +1003,8 @@ export class Translator {
     output: string,
     maskedValue: string,
     variables: VariableInfo[] = [],
-    placeholderOutput?: string
+    placeholderOutput?: string,
+    liveIgnored?: Element[]
   ): void {
     const hasIgnored = placeholderOutput !== undefined;
     const fragment = this.parseFragment(hasIgnored ? placeholderOutput : output);
@@ -931,10 +1048,10 @@ export class Translator {
       elementMarker.set(outElements[k]!, markers[k]!);
     }
     const markerToNode = this.buildMarkerToNode(element);
-    const liveIgnored = hasIgnored ? collectTopLevelIgnored(element, this.ignorePredicate) : [];
+    const ignoredNodes = hasIgnored ? liveIgnored ?? collectTopLevelIgnored(element, this.ignorePredicate) : [];
     const ignoredValues = hasIgnored ? variables.filter((v) => v.type === 'ignored').map((v) => v.value) : [];
 
-    this.reconcileChildren(element, fragment.childNodes, elementMarker, markerToNode, liveIgnored, ignoredValues);
+    this.reconcileChildren(element, fragment.childNodes, elementMarker, markerToNode, ignoredNodes, ignoredValues);
   }
 
   /**
@@ -1050,10 +1167,15 @@ export class Translator {
    * nodes rather than recreating them and removing only the leftovers not in
    * `ordered`. When `ordered` already matches the current children this performs no
    * DOM writes, keeping re-application idempotent.
+   *
+   * `keep` overrides which unclaimed children stay in place; by default those are the
+   * structural ones ({@link isStructuralChild}).
    */
-  private arrangeChildren(parent: Element, ordered: Node[]): void {
+  private arrangeChildren(parent: Element, ordered: Node[], keep?: (node: Node) => boolean): void {
     const claimed = new Set(ordered);
-    const isStructural = (node: Node): boolean => this.isStructuralChild(node, (n) => claimed.has(n));
+    const isStructural = keep
+      ? (node: Node): boolean => !claimed.has(node) && keep(node)
+      : (node: Node): boolean => this.isStructuralChild(node, (n) => claimed.has(n));
 
     let cursor: Node | null = parent.firstChild;
     for (const node of ordered) {
@@ -1065,14 +1187,21 @@ export class Translator {
         cursor = cursor.nextSibling;
       } else {
         parent.insertBefore(node, cursor); // moves an existing child, or inserts a new one
+        this.detachedFrom.delete(node);
       }
     }
+    let removed = false;
     while (cursor) {
       const next = cursor.nextSibling;
       // Reclaim only stale Text nodes that carried content; leave the structural ones.
-      if (!isStructural(cursor)) parent.removeChild(cursor);
+      if (!isStructural(cursor)) {
+        parent.removeChild(cursor);
+        this.detachedFrom.set(cursor, parent);
+        removed = true;
+      }
       cursor = next;
     }
+    if (removed || this.keptChildren.has(parent)) this.keptChildren.set(parent, Array.from(parent.childNodes));
   }
 
   /**
@@ -1093,12 +1222,20 @@ export class Translator {
     // among the new content. `replaceChildren` doesn't create nodes, so the ones we
     // re-insert are the very nodes the framework still holds references to.
     const structural = this.collectStructuralChildren(element, fragment);
+    // None of the rebuild's own nodes maps back to the source (see restoreSource). Marked
+    // before the live ignored nodes are spliced in, which do.
+    for (const node of fragment.childNodes) this.inserted.add(node);
     if (hasIgnored) this.restoreIgnoredNodes(element, fragment, variables);
     const content = Array.from(fragment.childNodes);
+    const carried = new Set(structural.map((s) => s.node));
+    for (const child of element.childNodes) {
+      if (!carried.has(child)) this.detachedFrom.set(child, element);
+    }
     element.replaceChildren(...content);
     for (const { node, anchorTo } of structural) {
       element.insertBefore(node, anchorTo === null ? null : content[anchorTo] ?? null);
     }
+    this.keptChildren.set(element, Array.from(element.childNodes));
   }
 
   /**

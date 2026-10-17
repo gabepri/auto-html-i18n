@@ -283,6 +283,29 @@ describe('Translator — edge paths', () => {
       expect(div.textContent).toBe('Hola Jdoe#42 mundo');
       expect(div.querySelector('[data-i18n-ignore]')).toBe(ignored); // same live node
     });
+
+    it('morphs the original into a unit adopted by its output and keeps the live ignored node', () => {
+      const { translator, store } = createDeps({ configOverrides: AGGREGATE_CONFIG });
+      store.set('es', 'Hola {{0}} mundo', 'Hello {{0}} world');
+
+      const source = document.createElement('div');
+      source.innerHTML = 'Hola <span data-i18n-ignore>Jdoe#42</span> mundo';
+      root.appendChild(source);
+      translator.processText(source, serializeAggregate(source, IGNORE_PREDICATE));
+
+      // A copy of our output in a node never seen as source: no recorded source to restore
+      const copy = document.createElement('div');
+      copy.innerHTML = source.innerHTML;
+      source.remove();
+      root.appendChild(copy);
+      translator.processText(copy, serializeAggregate(copy, IGNORE_PREDICATE));
+      const ignored = copy.querySelector('[data-i18n-ignore]')!;
+
+      translator.revertAll();
+
+      expect(copy.textContent).toBe('Hola Jdoe#42 mundo');
+      expect(copy.querySelector('[data-i18n-ignore]')).toBe(ignored);
+    });
   });
 
   describe('ignored-slot placeholders with no live counterpart', () => {

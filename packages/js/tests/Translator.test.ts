@@ -2269,6 +2269,91 @@ describe('Translator', () => {
     });
   });
 
+  // A framework patch to an aggregated unit replaces only the nodes it bound; restoreSource
+  // puts the source back into the rest. These pin which recorded source nodes still count.
+  describe('restoring an aggregated unit a framework patched', () => {
+    function enqueued(enqueueSpy: { mock: { calls: Array<[TranslationItem]> } }): string[] {
+      return enqueueSpy.mock.calls.map(([item]) => item.masked);
+    }
+
+    describe('a source node taken from a parent the translation left empty', () => {
+      function setup() {
+        const deps = createDeps();
+        deps.store.set('es', 'Total <b0>none</b0> yet', 'Total <b0></b0> todavía');
+        const p = document.createElement('p');
+        p.innerHTML = 'Total <b>none</b> yet';
+        root.appendChild(p);
+        const b = p.querySelector('b')!;
+        const none = b.firstChild as Text;
+        deps.translator.processText(p, p.innerHTML);
+        expect(p.innerHTML).toBe('Total <b></b> todavía');
+        expect(none.parentNode).toBeNull();
+        return { ...deps, enqueueSpy: vi.spyOn(deps.queue, 'enqueue'), p, b, none };
+      }
+
+      it('comes back while that parent is still empty', () => {
+        const { translator, enqueueSpy, p, b, none } = setup();
+
+        (p.lastChild as Text).data = ' so far';
+        translator.processText(p, p.innerHTML);
+
+        expect(enqueued(enqueueSpy)).toEqual(['Total <b0>none</b0> so far']);
+        expect(none.parentNode).toBe(b);
+      });
+
+      it('stays out once the framework has rendered into that parent', () => {
+        const { translator, enqueueSpy, p, none } = setup();
+
+        p.querySelector('b')!.textContent = 'all';
+        translator.processText(p, p.innerHTML);
+
+        expect(enqueued(enqueueSpy)).toEqual(['Total <b0>all</b0> yet']);
+        expect(none.parentNode).toBeNull();
+      });
+    });
+
+    it('moves an element the translation nested back to where the source had it', () => {
+      const { translator, store, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+      store.set('es', '<a0>x</a0> and <b0>y</b0>', '<a0>x <b0>y</b0></a0> y');
+
+      const p = document.createElement('p');
+      p.innerHTML = '<a href="/1">x</a> and <b>y</b>';
+      root.appendChild(p);
+      const b = p.querySelector('b')!;
+      translator.processText(p, p.innerHTML);
+      expect(p.innerHTML).toBe('<a href="/1">x <b>y</b></a> y');
+
+      (b.firstChild as Text).data = 'z';
+      translator.processText(p, p.innerHTML);
+
+      expect(enqueued(enqueueSpy)).toEqual(['<a0>x</a0> and <b0>z</b0>']);
+      expect(p.innerHTML).toBe('<a href="/1">x</a> and <b>z</b>');
+      expect(p.querySelector('b')).toBe(b);
+    });
+
+    it('leaves a node the framework moved out of the unit where it is', () => {
+      const { translator, store, queue } = createDeps();
+      const enqueueSpy = vi.spyOn(queue, 'enqueue');
+      store.set('es', 'Hi <b0>there</b0> friend', 'Hola <b0>allí</b0> amigo');
+
+      const p = document.createElement('p');
+      p.innerHTML = 'Hi <b>there</b> friend';
+      root.appendChild(p);
+      const b = p.querySelector('b')!;
+      translator.processText(p, p.innerHTML);
+
+      const elsewhere = document.createElement('div');
+      root.appendChild(elsewhere);
+      elsewhere.appendChild(b);
+      (p.lastChild as Text).data = ' pal';
+      translator.processText(p, p.innerHTML);
+
+      expect(enqueued(enqueueSpy)).toEqual(['Hi  pal']);
+      expect(b.parentNode).toBe(elsewhere);
+    });
+  });
+
   // The element-identity echo guard (lastApplied + exact string) misses our own
   // output when a framework re-creates the node (transition, v-if, keyed reorder)
   // or when whitespace drifts. The value-based, locale-scoped guard recognizes
@@ -2375,6 +2460,30 @@ describe('Translator', () => {
       expect(enqueueSpy).not.toHaveBeenCalled();
       expect(i2.getAttribute('data-i18n-original-title')).toBe('Notifications');
       expect(i2.getAttribute('title')).toBe('Notificaciones');
+    });
+
+    it('reverts an aggregated unit it adopted by its output by morphing the source into its nodes', () => {
+      const { translator, store } = createDeps();
+      store.set('es', 'Click <a0>here</a0> now', 'Haga clic <a0>aquí</a0> ahora');
+
+      const p1 = document.createElement('p');
+      p1.innerHTML = 'Click <a href="/x">here</a> now';
+      root.appendChild(p1);
+      translator.processText(p1, p1.innerHTML);
+
+      // A copy of our output (a carousel cloning a slide) in a node never seen as source
+      const p2 = document.createElement('p');
+      p2.innerHTML = p1.innerHTML;
+      p1.remove();
+      root.appendChild(p2);
+      translator.processText(p2, p2.innerHTML);
+      expect(p2.getAttribute('data-i18n-original')).toBe('Click <a href="/x">here</a> now');
+      const nodes = Array.from(p2.childNodes);
+
+      translator.revertAll();
+
+      expect(p2.innerHTML).toBe('Click <a href="/x">here</a> now');
+      expect(Array.from(p2.childNodes)).toEqual(nodes);
     });
 
     it('still reports a genuinely new source string that is not any known output', () => {
