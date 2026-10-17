@@ -36,7 +36,7 @@ jobs:
         working-directory: packages/php
     strategy:
       matrix:
-        php-version: ['8.1', '8.2', '8.3']
+        php-version: ['8.1', '8.2', '8.3', '8.4', '8.5']
     steps:
       - uses: actions/checkout@v5
       - uses: shivammathur/setup-php@v2
@@ -49,8 +49,9 @@ jobs:
           working-directory: packages/php
       - run: composer test
 
-  # Style and static analysis don't vary by PHP version, so they run once
-  # instead of across the 8.1/8.2/8.3 matrix.
+  # Style and static analysis run once instead of across the matrix: PHPStan's result
+  # doesn't depend on the PHP it runs on (phpVersion in phpstan.neon.dist), and what does
+  # differ per version at runtime is the test matrix's job.
   php-quality:
     runs-on: ubuntu-latest
     defaults:

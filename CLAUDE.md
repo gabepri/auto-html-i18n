@@ -51,8 +51,10 @@ not a runtime guarantee — and cleared via `treatPhpDocTypesAsCertain: false` r
 
 `composer lint` and `composer analyse` are both blocking in CI.
 
-CI runs both packages in parallel: JS on Node 20/22/24, PHP on 8.1/8.2/8.3, plus a single-version
+CI runs both packages in parallel: JS on Node 20/22/24, PHP on 8.1/8.2/8.3/8.4/8.5, plus a single-version
 `php-quality` job for `analyse` + `lint` (style and static analysis don't vary per PHP version).
+
+When the supported PHP range changes (composer.json's `php`, or the newest version in the CI matrix), update `phpVersion` min/max in [phpstan.neon.dist](packages/php/phpstan.neon.dist) to match.
 
 ## Architecture
 
