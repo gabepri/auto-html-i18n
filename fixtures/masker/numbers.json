@@ -85,5 +85,17 @@
         { "value": "%", "type": "symbol" }
       ]
     }
+  },
+  {
+    "name": "a number attached to letters still masks (whole-word matching is for ignoreWords only)",
+    "input": "Finished 3rd on Win10",
+    "expected": {
+      "masked": "Finished {{0}}rd on Win{{1}}",
+      "variables": [
+        { "value": "3", "type": "number" },
+        { "value": "10", "type": "number" }
+      ],
+      "casePattern": "mixed"
+    }
   }
 ]

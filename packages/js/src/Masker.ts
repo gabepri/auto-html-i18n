@@ -21,6 +21,28 @@ const PDI = '\u2069'; // POP DIRECTIONAL ISOLATE
 // subtrees are opaque markup, so they aren't isolated either.
 const BIDI_ISOLATED_TYPES = new Set<VariableType>(['ignoreWord', 'number', 'date', 'url', 'email']);
 
+// Code point blocks of the scripts written without spaces between words: Thai, Lao,
+// Myanmar, Khmer, CJK symbols (々 〆 〇), Hiragana, Katakana, Katakana phonetic
+// extensions, CJK ideographs with their extensions and compatibility forms, halfwidth
+// Katakana and the historic kana. Blocks rather than \p{Script=…} so that the kana marks
+// Unicode files under the Common and Inherited scripts (the long-vowel mark ー, the
+// combining voiced marks) count too. Identical to the PHP port's SPACELESS_SCRIPTS.
+const SPACELESS_SCRIPTS = '\\u0E00-\\u0EFF\\u1000-\\u109F\\u1780-\\u17FF\\u3000-\\u30FF\\u31F0-\\u31FF'
+  + '\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF\\uFF66-\\uFF9F\\u{1AFF0}-\\u{1B16F}\\u{20000}-\\u{3FFFF}';
+
+const WORD_CHAR = '[\\p{L}\\p{M}\\p{N}]';
+const SPACELESS_CHAR = `[${SPACELESS_SCRIPTS}]`;
+
+// The position is not inside a word. Two word characters (letter, mark or number) side
+// by side are one word unless either belongs to a spaceless script, so this holds when
+// the character before or the one after is absent, not a word character, or spaceless.
+// Placed on both sides of the ignoreWord alternation, the lookbehinds at the end of a
+// match read the word's own last character, so an edge that is not a word character
+// (`CA$`) or belongs to a spaceless script (`田中`) never blocks the match. Flat
+// alternatives with no lookaround nested in another, the form every engine with
+// lookbehind accepts (Safari has had it only since 16.4).
+const NOT_INSIDE_WORD = `(?:(?<!${WORD_CHAR})|(?<=${SPACELESS_CHAR})|(?!${WORD_CHAR})|(?=${SPACELESS_CHAR}))`;
+
 /** How unmask renders an ignored-subtree variable. */
 export type IgnoredMode = 'inline' | 'placeholder';
 
@@ -616,10 +638,13 @@ export class Masker {
     const groups: string[] = [];
     this.groupTypeMap = [];
 
-    // 1. IgnoreWords (longest first, word boundaries)
+    // 1. IgnoreWords (longest first), as whole words only: a match may neither start nor
+    // end inside a word. One assertion around the whole alternation, not one per word,
+    // keeps the regex size independent of the word count. Where the longest alternative
+    // would split a word, backtracking falls through to a shorter one.
     if (this.ignoreWords.length > 0) {
       const alts = this.ignoreWords.map(w => escapeRegex(w.word)).join('|');
-      groups.push(`(${alts})`);
+      groups.push(`(${NOT_INSIDE_WORD}(?:${alts})${NOT_INSIDE_WORD})`);
       this.groupTypeMap.push('ignoreWord');
     }
 
@@ -648,7 +673,10 @@ export class Masker {
       return /(?!)/; // Never matches
     }
 
-    return new RegExp(groups.join('|'), 'g');
+    // `u` for the Unicode property escapes in NOT_INSIDE_WORD. Every other group matches
+    // the same text either way: their classes are ASCII or BMP, and the URL group's
+    // [^\s<>]+ takes a surrogate pair whole with or without it.
+    return new RegExp(groups.join('|'), 'gu');
   }
 }
 

@@ -6,6 +6,12 @@
 
 - **Requires Node 20 or later** (`engines.node` `>=18` → `>=20`). Node 18 reached end of life in April 2025, and CI now tests on Node 20, 22 and 24. The library itself runs in the browser, so this only affects the Node version used to install and build it.
 
+### Fixed
+
+- **`ignoreWords` are masked only as whole words.** An ignore word used to be masked inside any longer word that contained it. With the surname `Ma` configured, `May I help, Ma?` masked to `{{0}}y I help, {{1}}?` and `Manage` to `{{0}}nage`; the product name `Mi Fit` turned `Mi Fitness` into `{{0}}ness`. Every such string got a key that only users with that name produce: it missed the cache, rendered untranslated, was reported as new missing source, and machine-translated into garbage. A match must now start and end at a word boundary, where letters, combining marks and digits in any script continue a word. If a longer ignore word would split a word, a shorter one that fits still matches. An edge that isn't a word character needs no boundary (`CA$` still matches in `CA$500`), and neither do scripts written without spaces (`田中` still matches in `田中様`). The PHP port gets the same fix.
+
+  **No cache migration is needed.** Only keys where an ignore word matched inside another word change, and those keys were already wrong: the corrected key is the one everyone without that name already produces, so existing translations apply. The junk rows the old keys created (`{{0}}y I help`, `{{0}}nage`, …) can be deleted from your translation store.
+
 ## 1.3.3
 
 ### Fixed
