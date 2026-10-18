@@ -81,5 +81,164 @@
       ],
       "casePattern": "mixed"
     }
+  },
+  {
+    "name": "ignoreWord is not matched at the start of a longer word",
+    "input": "May I help, Ma?",
+    "config": { "ignoreWords": ["Ma"] },
+    "expected": {
+      "masked": "May I help, {{0}}?",
+      "variables": [{ "value": "Ma", "type": "ignoreWord" }],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "ignoreWord is not matched at the end of a longer word",
+    "input": "Get IncentFit, then Fit",
+    "config": { "ignoreWords": ["Fit"] },
+    "expected": {
+      "masked": "Get IncentFit, then {{0}}",
+      "variables": [{ "value": "Fit", "type": "ignoreWord" }],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "ignoreWord is not matched inside a longer word",
+    "input": "IncentFitness by Fit",
+    "config": { "ignoreWords": ["Fit"] },
+    "expected": {
+      "masked": "IncentFitness by {{0}}",
+      "variables": [{ "value": "Fit", "type": "ignoreWord" }],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "multi-word ignoreWord is not matched as the prefix of a longer phrase",
+    "input": "Connect Mi Fitness or Mi Fit",
+    "config": { "ignoreWords": ["Mi Fit"] },
+    "expected": {
+      "masked": "Connect Mi Fitness or {{0}}",
+      "variables": [{ "value": "Mi Fit", "type": "ignoreWord" }],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "a shorter ignoreWord still matches where a longer one would split a word",
+    "input": "Connect Mi Fitness",
+    "config": { "ignoreWords": ["Mi Fit", "Mi"] },
+    "expected": {
+      "masked": "Connect {{0}} Fitness",
+      "variables": [{ "value": "Mi", "type": "ignoreWord" }],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "a letter outside ASCII continues the word",
+    "input": "Mañana, Ma",
+    "config": { "ignoreWords": ["Ma"] },
+    "expected": {
+      "masked": "Mañana, {{0}}",
+      "variables": [{ "value": "Ma", "type": "ignoreWord" }],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "ignoreWord next to punctuation or a possessive still matches",
+    "input": "Ma's plan (Ma)",
+    "config": { "ignoreWords": ["Ma"] },
+    "expected": {
+      "masked": "{{0}}'s plan ({{1}})",
+      "variables": [
+        { "value": "Ma", "type": "ignoreWord" },
+        { "value": "Ma", "type": "ignoreWord" }
+      ]
+    }
+  },
+  {
+    "name": "ignoreWord ending in a symbol still matches against a number",
+    "input": "Earn CA$500",
+    "config": { "ignoreWords": ["CA$"] },
+    "expected": {
+      "masked": "Earn {{0}}{{1}}",
+      "variables": [
+        { "value": "CA$", "type": "ignoreWord" },
+        { "value": "500", "type": "number" }
+      ],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "ignoreWord in a script written without spaces still matches beside other letters",
+    "input": "田中様、田中さん",
+    "config": { "ignoreWords": ["田中"] },
+    "expected": {
+      "masked": "{{0}}様、{{1}}さん",
+      "variables": [
+        { "value": "田中", "type": "ignoreWord" },
+        { "value": "田中", "type": "ignoreWord" }
+      ]
+    }
+  },
+  {
+    "name": "a combining mark continues the word",
+    "input": "Má and Ma",
+    "config": { "ignoreWords": ["Ma"] },
+    "expected": {
+      "masked": "Má and {{0}}",
+      "variables": [{ "value": "Ma", "type": "ignoreWord" }],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "a digit continues the word",
+    "input": "Fit2Go or Fit",
+    "config": { "ignoreWords": ["Fit"] },
+    "expected": {
+      "masked": "Fit{{0}}Go or {{1}}",
+      "variables": [
+        { "value": "2", "type": "number" },
+        { "value": "Fit", "type": "ignoreWord" }
+      ],
+      "casePattern": "mixed"
+    }
+  },
+  {
+    "name": "a Latin ignoreWord directly beside Han still matches",
+    "input": "欢迎使用IncentFit应用",
+    "config": { "ignoreWords": ["IncentFit"] },
+    "expected": {
+      "masked": "欢迎使用{{0}}应用",
+      "variables": [{ "value": "IncentFit", "type": "ignoreWord" }]
+    }
+  },
+  {
+    "name": "a Latin ignoreWord directly beside kana still matches",
+    "input": "Maさん、IncentFitのアプリ",
+    "config": { "ignoreWords": ["Ma", "IncentFit"] },
+    "expected": {
+      "masked": "{{0}}さん、{{1}}のアプリ",
+      "variables": [
+        { "value": "Ma", "type": "ignoreWord" },
+        { "value": "IncentFit", "type": "ignoreWord" }
+      ]
+    }
+  },
+  {
+    "name": "the katakana long-vowel mark belongs to a script written without spaces",
+    "input": "ユーザーIDを入力",
+    "config": { "ignoreWords": ["ID"] },
+    "expected": {
+      "masked": "ユーザー{{0}}を入力",
+      "variables": [{ "value": "ID", "type": "ignoreWord" }]
+    }
+  },
+  {
+    "name": "Thai is a script written without spaces",
+    "input": "สวัสดีคุณสมชาย",
+    "config": { "ignoreWords": ["สมชาย"] },
+    "expected": {
+      "masked": "สวัสดีคุณ{{0}}",
+      "variables": [{ "value": "สมชาย", "type": "ignoreWord" }]
+    }
   }
 ]

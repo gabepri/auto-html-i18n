@@ -50,7 +50,7 @@ When metadata is present, the corresponding `expected.variables[]` entry should 
 
 - `masker/numbers.json` — integers, decimals, negatives, percentages
 - `masker/dates.json` — MM/DD/YYYY, YYYY-MM-DD, DD.MM.YYYY
-- `masker/ignore-words.json` — string entries, multi-word, longest-first
+- `masker/ignore-words.json` — string entries, multi-word, longest-first, whole words only (never inside a longer word, falling back to a shorter entry that fits; edges that aren't word characters and scripts written without spaces need no boundary)
 - `masker/urls-emails.json` — URLs and email addresses
 - `masker/symbols.json` — ©, ®, ™, currency, miscellaneous
 - `masker/inline-tags.json` — tag normalization, attribute extraction, nesting
